@@ -43,7 +43,7 @@ def answer(kind: str, prompt: str) -> str:
     lines = [l.strip() for l in content.splitlines() if l.strip()]
     low = content.lower()
     if kind == "title":
-        m = re.search(r"(Verdienstabrechnung|Betriebskostenabrechnung)\s+[\wäöüÄÖÜ]+(?:\s+\d{4})?", content)
+        m = re.search(r"(Verdienstabrechnung|Betriebskostenabrechnung)(?:[ \t]+[\wäöüÄÖÜ]+)?(?:[ \t]+\d{4})?", content)
         return m.group(0) if m else (lines[0][:80] if lines else "Dokument")
     if kind == "correspondent":
         return lines[0] if lines and re.search(r"GmbH|AG|amt|Standesamt|Verein", lines[0]) else "Unknown"

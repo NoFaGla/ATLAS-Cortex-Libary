@@ -223,7 +223,7 @@ class LibraryIngest:
                 out.append({"atlas_id": r["atlas_id"], "from": r["status"], "to": new})
         return out
 
-    def finalize(self, token: str, paperless: WriteClient) -> list[dict]:
+    def finalize(self, token: str, paperless: WriteClient, settle_s: float = 10.0) -> list[dict]:
         """Nach Paperless-GPT: explizite Nutzerhinweise haben Vorrang vor LLM-Vorschlägen und werden erneut gesetzt;
         Status-Tag wird nachgeführt (Done -> Status/Verarbeitet, Failed -> Status/Prüfen). Ohne GPT-Ergebnis passiert nichts."""
         self._auth(token)
@@ -235,6 +235,12 @@ class LibraryIngest:
                 continue
             doc = paperless.get_document(e["backend_id"])
             names = paperless.tag_names(doc)
+            if ("System/Paperless-GPT-Failed" in names or "System/Paperless-GPT-Done" in names) and doc.get("modified"):
+                # Paperless-GPT schreibt Datum/Tags/Korrespondent/Titel in getrennten Updates (Done-Tag kann vor dem Titel erscheinen).
+                # Erst handeln, wenn das Dokument eine Weile unverändert ist – sonst überschreibt GPT unsere Nutzerhinweise danach wieder.
+                age = (datetime.now(timezone.utc) - datetime.fromisoformat(doc["modified"].replace("Z", "+00:00"))).total_seconds()
+                if age < settle_s:
+                    continue
             if "System/Paperless-GPT-Failed" in names:
                 paperless.apply_hints(doc["id"], {}, ["Status/Prüfen"], ["Status/Unverarbeitet", "System/Paperless-GPT-Queue"])
                 outcome = "needs_review"

@@ -94,11 +94,14 @@ def state(w, aid):
             "tags": w["wc"].tag_names(d), "fields": d["custom_fields"], "id": d["id"]}
 
 
+FINALIZE_LOG: list = []
+
+
 def settle(w, aids, timeout=300):
     """reconcile + finalize bis alle Dokumente Done oder Failed sind und finalisiert wurden."""
     def ok():
         w["ing"].reconcile(ING, w["wc"], queue_for_gpt=True)
-        w["ing"].finalize(ING, w["wc"])
+        FINALIZE_LOG.extend(w["ing"].finalize(ING, w["wc"]))
         return all(json.loads((w["tmp"] / "state" / "hints" / f"{a}.json").read_text()).get("finalized") for a in aids)
     return wait(ok, timeout, 4)
 
@@ -127,6 +130,11 @@ def test_happy_path_metadata_and_user_priority(w):
     assert s_1["title"] == "Verdienstabrechnung Januar 2026"
     # Vorrang expliziter Nutzerangaben vor dem LLM
     assert s_1["correspondent"] == "Beispiel Wohnbau GmbH" and s_1["created"] == "2026-01-31"
+    hist = [(h["timestamp"][11:19], h["action"], {k: v for k, v in h["changes"].items() if k in ("title", "created", "tags", "correspondent")})
+            for h in w["admin"]._get_json(f"/api/documents/{s_3['id']}/history/")]
+    if s_3["title"] != "Betriebskostenabrechnung 2025":
+        print("HISTORY", *hist, sep="\n  ")
+        print("FINALIZE", *FINALIZE_LOG, sep="\n  ")
     assert s_3["title"] == "Betriebskostenabrechnung 2025" and "Kontext/Wohnen" in s_3["tags"]
     assert w["admin"].get_metadata(w["reg"].get(a3)["backend_id"])["media_filename"].startswith("2026-03 - ")  # Monatsgenauigkeit bleibt
     # Dokumenttyp: nie automatisch (AUTO_GENERATE_DOCUMENT_TYPE=false)
