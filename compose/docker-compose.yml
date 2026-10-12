@@ -1,0 +1,106 @@
+name: m03-sandbox
+
+services:
+  broker:
+    image: docker.io/valkey/valkey:9-alpine
+    restart: unless-stopped
+    volumes:
+      - redisdata:/data
+    networks: [m03]
+
+  db:
+    image: docker.io/library/postgres:18
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: paperless
+      POSTGRES_USER: paperless
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+    secrets: [postgres_password]
+    volumes:
+      - pgdata:/var/lib/postgresql
+    networks: [m03]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U paperless -d paperless"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  webserver:
+    image: ghcr.io/paperless-ngx/paperless-ngx:3.3.0
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+      broker:
+        condition: service_started
+    ports:
+      - "127.0.0.1:18000:8000"
+    env_file: [./paperless.env]
+    environment:
+      PAPERLESS_REDIS: redis://broker:6379
+      PAPERLESS_DBHOST: db
+      PAPERLESS_DBENGINE: postgresql
+      PAPERLESS_DBNAME: paperless
+      PAPERLESS_DBUSER: paperless
+      PAPERLESS_DBPASS_FILE: /run/secrets/postgres_password
+      PAPERLESS_SECRET_KEY_FILE: /run/secrets/paperless_secret_key
+      PAPERLESS_ADMIN_PASSWORD_FILE: /run/secrets/paperless_admin_password
+    secrets:
+      - postgres_password
+      - paperless_secret_key
+      - paperless_admin_password
+    volumes:
+      - paperless_data:/usr/src/paperless/data
+      - /srv/atlas-sandbox/module03/media:/usr/src/paperless/media
+      - /srv/atlas-sandbox/module03/export:/usr/src/paperless/export
+      - /srv/atlas-sandbox/module03/consume:/usr/src/paperless/consume
+    networks: [m03]
+
+  paperless-gpt:
+    profiles: ["ai"]
+    image: ${PAPERLESS_GPT_IMAGE:-ghcr.io/icereed/paperless-gpt:v0.29.0}
+    restart: unless-stopped
+    depends_on: [webserver]
+    ports:
+      - "127.0.0.1:18080:8080"
+    env_file:
+      - /etc/atlas/secrets/module03-sandbox/paperless-gpt.env
+    environment:
+      PAPERLESS_BASE_URL: http://webserver:8000
+      PAPERLESS_PUBLIC_URL: http://127.0.0.1:18000
+      PUID: ${HOST_UID:-1000}
+      PGID: ${HOST_GID:-1000}
+      LLM_LANGUAGE: German
+      AUTO_GENERATE_DOCUMENT_TYPE: "false"
+      MANUAL_TAG: System/Paperless-GPT-Manual
+      AUTO_TAG: System/Paperless-GPT-Queue
+      AUTO_TAG_COMPLETE: System/Paperless-GPT-Done
+      FAIL_TAG: System/Paperless-GPT-Failed
+      AUTO_TAG_MAX_RETRIES: "3"
+      PDF_UPLOAD: "false"
+      LOG_LEVEL: info
+    volumes:
+      - /var/lib/atlas-sandbox/module03/paperless-gpt/prompts:/app/prompts
+      - /var/lib/atlas-sandbox/module03/paperless-gpt/config:/app/config
+      - /var/lib/atlas-sandbox/module03/paperless-gpt/db:/app/db
+    networks: [m03]
+
+networks:
+  m03:
+    name: m03-sandbox-net
+
+volumes:
+  paperless_data:
+    name: m03-sandbox-paperless-data
+  pgdata:
+    name: m03-sandbox-pgdata
+  redisdata:
+    name: m03-sandbox-redisdata
+
+secrets:
+  postgres_password:
+    file: /etc/atlas/secrets/module03-sandbox/postgres_password
+  paperless_secret_key:
+    file: /etc/atlas/secrets/module03-sandbox/paperless_secret_key
+  paperless_admin_password:
+    file: /etc/atlas/secrets/module03-sandbox/paperless_admin_password

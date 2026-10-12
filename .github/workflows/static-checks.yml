@@ -1,0 +1,32 @@
+name: M03 static checks
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  static:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check shell syntax
+        run: |
+          set -euo pipefail
+          find scripts -type f -name '*.sh' -print0 | xargs -0 -r -n1 bash -n
+      - name: Validate YAML and Compose structure
+        run: |
+          python3 -m pip install --user PyYAML
+          python3 - <<'PYCODE'
+          from pathlib import Path
+          import yaml
+          for path in list(Path('.github/workflows').glob('*.yml')) + list(Path('compose').glob('*.yml')):
+              with path.open() as f: yaml.safe_load(f)
+              print('YAML OK:', path)
+          PYCODE
+      - name: Reject accidentally tracked private env files
+        run: |
+          set -euo pipefail
+          if git ls-files | grep -E '(^|/)\.env($|\.)' | grep -Ev '\.env\.example$'; then
+            echo 'FAIL: private env file tracked'; exit 1
+          fi
+          echo 'PASS: no private env files tracked'

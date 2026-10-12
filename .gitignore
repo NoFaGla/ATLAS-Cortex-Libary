@@ -1,0 +1,18 @@
+# Credentials and generated runtime data
+.env
+.env.*
+!.env.example
+!**/*.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+secrets/
+**/secrets/
+backups/
+**/backups/
+*.sqlite3
+__pycache__/
+.pytest_cache/
+*.log
+.DS_Store

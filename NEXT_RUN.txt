@@ -1,0 +1,19 @@
+M03 SANDBOX – NÄCHSTER START
+
+1) Paket auf den laufenden ATLAS bringen und entpacken.
+
+2) In den Paketordner wechseln:
+   cd M03-CORTEX-LIBRARY-SANDBOX
+
+3) Nur prüfen, noch nichts ändern:
+   bash scripts/00-preflight.sh
+
+4) Wenn PRECHECK=PASS:
+   sudo bash scripts/01-bootstrap.sh
+
+5) Core starten:
+   sudo /opt/atlas-sandbox/module03/scripts/02-up-core.sh
+
+6) Ausgabe hier in ChatGPT schicken.
+
+STOP bei jedem FAIL/BLOCKER. Nicht eigenmächtig auf latest wechseln und keine produktiven Cortex-Pfade anfassen.
