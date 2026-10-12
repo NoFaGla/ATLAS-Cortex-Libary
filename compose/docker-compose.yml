@@ -2,7 +2,7 @@ name: m03-sandbox
 
 services:
   broker:
-    image: docker.io/valkey/valkey:9-alpine
+    image: docker.io/valkey/valkey:9-alpine@sha256:48332870af354a799964c0012ae1194a0bf2bf894eb508f945810596dc2d8d11
     restart: unless-stopped
     volumes:
       - redisdata:/data
@@ -14,7 +14,7 @@ services:
       retries: 10
 
   db:
-    image: docker.io/library/postgres:18
+    image: docker.io/library/postgres:18@sha256:74935e72241653ca55e0414067e6d8763aceb8a810eb51b452253ec3dcfc4336
     restart: unless-stopped
     environment:
       POSTGRES_DB: paperless
@@ -31,7 +31,7 @@ services:
       retries: 10
 
   webserver:
-    image: ghcr.io/paperless-ngx/paperless-ngx:3.3.0
+    image: ghcr.io/paperless-ngx/paperless-ngx:3.3.0@sha256:6b94799bc769a063b3340cc5847402e626d4d91d29a295a8e747f8e9bead4207
     restart: unless-stopped
     depends_on:
       db:
@@ -68,7 +68,7 @@ services:
 
   paperless-gpt:
     profiles: ["ai"]
-    image: ${PAPERLESS_GPT_IMAGE:-ghcr.io/icereed/paperless-gpt:v0.29.0}
+    image: ${PAPERLESS_GPT_IMAGE:-ghcr.io/icereed/paperless-gpt:v0.29.0@sha256:4127ea223e0f496c1075a3a05661df4847140974c3c3ce89a4ba991be50320cb}
     restart: unless-stopped
     depends_on: [webserver]
     ports:

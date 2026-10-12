@@ -11,13 +11,28 @@ ROOT = Path(__file__).resolve().parents[2]
 COMPOSE = yaml.safe_load((ROOT / "compose/docker-compose.yml").read_text())
 
 
-def test_no_latest_tags_and_images_pinned():
+def _images():
     for name, svc in COMPOSE["services"].items():
         img = svc["image"]
-        assert "latest" not in img, name
         if "${" in img:
             img = re.search(r":-([^}]+)\}", img).group(1)
-        assert re.search(r":v?[0-9][\w.\-]*$", img), f"{name}: Image nicht gepinnt: {img}"
+        yield name, img
+
+
+def test_no_latest_tags_and_images_pinned():
+    for name, img in _images():
+        assert "latest" not in img, name
+        assert re.search(r":v?[0-9][\w.\-]*(@sha256:[0-9a-f]{64})?$", img), f"{name}: Image nicht gepinnt: {img}"
+
+
+def test_images_pinned_by_digest():
+    for name, img in _images():
+        assert re.search(r"@sha256:[0-9a-f]{64}$", img), f"{name}: kein Digest: {img}"
+    env = (ROOT / "compose/.env.example").read_text()
+    assert re.search(r"PAPERLESS_GPT_IMAGE=\S+@sha256:[0-9a-f]{64}", env)
+    lock = (ROOT / "VERSION_LOCK.md").read_text()
+    for _, img in _images():
+        assert img.split("@")[1] in lock, f"Digest fehlt in VERSION_LOCK.md: {img}"
 
 
 def test_ports_bound_to_loopback_only():

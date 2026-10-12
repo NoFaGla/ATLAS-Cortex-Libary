@@ -1,0 +1,2 @@
+# SC2015 (A && B || C) ist stilistisch und wird bewusst toleriert; Verhalten ist je Aufruf geprüft.
+disable=SC2015

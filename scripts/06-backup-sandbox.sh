@@ -28,7 +28,7 @@ for vol in m03-sandbox-paperless-data m03-sandbox-pgdata m03-sandbox-redisdata; 
 done
 {
   echo "backup_utc=$STAMP"; echo "hostname=$(hostname)"; echo "kernel=$(uname -a)"; echo "docker=$(docker --version)"; echo "compose=$(docker compose version)"
-  echo "paperless_image=ghcr.io/paperless-ngx/paperless-ngx:3.3.0"; echo "postgres_image=postgres:18"; echo "valkey_image=valkey:9-alpine"; grep '^PAPERLESS_GPT_IMAGE=' "$OPT/compose/.env" || true
+  docker compose --profile ai config --images
 } > "$CURRENT/manifest/versions.txt"
 docker compose --profile ai config > "$CURRENT/manifest/compose.resolved.yml"
 find "$CURRENT" -type f -print0 | sort -z | xargs -0 sha256sum > "$BASE/SHA256SUMS"
