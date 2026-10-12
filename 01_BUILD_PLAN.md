@@ -122,7 +122,7 @@ sudo /opt/atlas-sandbox/module03/scripts/07-destroy-sandbox.sh --i-understand-th
 Danach Cloud-Backup lokal holen oder eine bewusst bereitgelegte Testkopie verwenden und:
 
 ```bash
-sudo bash scripts/08-restore-sandbox.sh /pfad/zum/current-backup
+sudo bash scripts/08-restore-sandbox.sh /pfad/zum/current-backup --i-understand-this-replaces-the-sandbox
 ```
 
 ## Gate L — Referenzrelease

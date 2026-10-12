@@ -48,7 +48,7 @@ Nach Neu-Konfiguration von OneDrive + Crypt:
 mkdir -p /root/m03-cloud-restore/current
 sudo RCLONE_CONFIG=/etc/atlas/secrets/module03-sandbox/rclone.conf \
   rclone copy atlascrypt:M03-Sandbox/current /root/m03-cloud-restore/current
-sudo bash scripts/08-restore-sandbox.sh /root/m03-cloud-restore/current
+sudo bash scripts/08-restore-sandbox.sh /root/m03-cloud-restore/current --i-understand-this-replaces-the-sandbox
 ```
 
 Nach bestandener Sandbox wird dasselbe Muster auf ganz ATLAS erweitert, inklusive `/etc/atlas/secrets/`.

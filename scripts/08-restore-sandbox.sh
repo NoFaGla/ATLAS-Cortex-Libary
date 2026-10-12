@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 [ "${EUID}" -eq 0 ] || { echo "Bitte mit sudo/root ausführen." >&2; exit 1; }
+[ "${2:-}" = "--i-understand-this-replaces-the-sandbox" ] || { echo "ABBRUCH: Aufruf: 08-restore-sandbox.sh <backup-dir> --i-understand-this-replaces-the-sandbox (ersetzt Sandbox-Pfade)" >&2; exit 1; }
 BACKUP=${1:-}; [ -d "$BACKUP/opt/module03" ] || { echo "Ungültiges Backup" >&2; exit 1; }; [ -d "$BACKUP/etc/module03-sandbox-secrets" ] || { echo "Secrets fehlen" >&2; exit 1; }
 OPT=/opt/atlas-sandbox/module03; SRV=/srv/atlas-sandbox/module03; VAR=/var/lib/atlas-sandbox/module03; SEC=/etc/atlas/secrets/module03-sandbox
 rm -rf "$OPT" "$SRV" "$VAR" "$SEC"; mkdir -p /opt/atlas-sandbox /srv/atlas-sandbox /var/lib/atlas-sandbox /etc/atlas/secrets

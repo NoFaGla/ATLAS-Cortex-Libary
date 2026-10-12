@@ -11,4 +11,4 @@ fi
 docker compose --profile ai up -d paperless-gpt
 sleep 3
 docker compose --profile ai ps paperless-gpt
-curl -fsSI http://127.0.0.1:18080/ >/dev/null && echo "AI_UI=PASS" || { docker compose --profile ai logs --tail=150 paperless-gpt; exit 1; }
+if curl -fsSI http://127.0.0.1:18080/ >/dev/null; then echo "AI_UI=PASS"; else docker compose --profile ai logs --tail=150 paperless-gpt; exit 1; fi

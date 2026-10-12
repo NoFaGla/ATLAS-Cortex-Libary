@@ -5,6 +5,7 @@ set -euo pipefail
 OPT=/opt/atlas-sandbox/module03; SRV=/srv/atlas-sandbox/module03; VAR=/var/lib/atlas-sandbox/module03; SEC=/etc/atlas/secrets/module03-sandbox
 LATEST=$(readlink -f "$SRV/backup-staging/latest" 2>/dev/null || true)
 [ -n "$LATEST" ] && [ -f "$LATEST/SHA256SUMS" ] || { echo "STOP: kein lokales Backup erkennbar" >&2; exit 1; }
+(cd "$LATEST" && sha256sum --quiet -c SHA256SUMS) || { echo "STOP: Backup-Prüfsummen stimmen nicht" >&2; exit 1; }
 SAFE=/root/m03-sandbox-last-backup; rm -rf "$SAFE"; mkdir -p "$SAFE"; cp -a "$LATEST/." "$SAFE/"
 cd "$OPT/compose"; docker compose --profile ai down -v --remove-orphans
 rm -rf "$OPT" "$VAR" "$SEC" "$SRV"

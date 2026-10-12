@@ -6,27 +6,48 @@ permissions:
   contents: read
 jobs:
   static:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
-      - name: Check shell syntax
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install test dependencies
+        run: python -m pip install pytest pyyaml -e .
+      - name: Shell syntax and shellcheck
         run: |
           set -euo pipefail
-          find scripts -type f -name '*.sh' -print0 | xargs -0 -r -n1 bash -n
-      - name: Validate YAML and Compose structure
+          find scripts tests -type f -name '*.sh' -print0 | xargs -0 -r -n1 bash -n
+          find scripts tests -type f -name '*.sh' -print0 | xargs -0 -r shellcheck -S style
+      - name: Validate workflow YAML and Compose (dummy secrets, no real values)
         run: |
-          python3 -m pip install --user PyYAML
-          python3 - <<'PYCODE'
+          set -euo pipefail
+          T=$(mktemp -d); mkdir "$T/sec"
+          for f in postgres_password paperless_secret_key paperless_admin_password; do echo dummy > "$T/sec/$f"; done
+          cp compose/paperless-gpt.env.example "$T/sec/paperless-gpt.env"
+          cp compose/paperless.env.example compose/paperless.env
+          cp compose/.env.example compose/.env
+          sed "s#/etc/atlas/secrets/module03-sandbox#$T/sec#g" compose/docker-compose.yml > "$T/docker-compose.yml"
+          cp compose/paperless.env "$T/"; cp compose/.env "$T/"
+          (cd "$T" && docker compose --profile ai config -q && docker compose --profile ai config --images)
+          rm -f compose/paperless.env compose/.env
+          python - <<'PYCODE'
           from pathlib import Path
           import yaml
           for path in list(Path('.github/workflows').glob('*.yml')) + list(Path('compose').glob('*.yml')):
-              with path.open() as f: yaml.safe_load(f)
-              print('YAML OK:', path)
+              yaml.safe_load(path.read_text()); print('YAML OK:', path)
           PYCODE
-      - name: Reject accidentally tracked private env files
-        run: |
-          set -euo pipefail
-          if git ls-files | grep -E '(^|/)\.env($|\.)' | grep -Ev '\.env\.example$'; then
-            echo 'FAIL: private env file tracked'; exit 1
-          fi
-          echo 'PASS: no private env files tracked'
+      - name: Secret scan (tracked files)
+        run: python -m pytest -q tests/unit/test_repo_static.py -k "secret or private or placeholders"
+      - name: Unit tests (registry, library-read, library-ingest, repo invariants)
+        run: python -m pytest -q
+  # Echter Container-Test. Benötigt keine Secrets: erzeugt Wegwerf-Secrets im Runner-Temp-Verzeichnis,
+  # nutzt nur synthetische Daten und bindet nur an 127.0.0.1.
+  core-integration:
+    runs-on: ubuntu-24.04
+    needs: static
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Core smoke test (Paperless 3.3.0 + PostgreSQL 18 + Valkey 9)
+        run: bash tests/integration/core-smoke.sh

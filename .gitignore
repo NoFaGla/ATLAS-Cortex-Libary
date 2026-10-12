@@ -16,3 +16,22 @@ __pycache__/
 .pytest_cache/
 *.log
 .DS_Store
+
+# ATLAS M03 additions
+rclone.conf
+*.dump
+*.sql
+*.sql.gz
+*.tar
+*.tar.gz
+*.bak
+*.tmp
+*.swp
+.venv/
+venv/
+*.egg-info/
+.coverage
+dist/
+build/
+tests/testdata/real/
+tests/testdata/private/

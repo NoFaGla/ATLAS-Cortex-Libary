@@ -7,7 +7,7 @@ Stand: 2026-10-09.
 | Paperless-ngx | 3.3.0 | gepinnt |
 | PostgreSQL | 18 | gepinnt |
 | Valkey | 9-alpine | gepinnt |
-| Paperless-GPT | 0.29.0 | Ziel; Image-Verfügbarkeit prüfen |
+| Paperless-GPT | v0.29.0 | Ziel; Manifest am 2026-10-12 auf ghcr.io verifiziert (Tag `0.29.0` ohne `v` existiert nicht) |
 
 ## Regel
 

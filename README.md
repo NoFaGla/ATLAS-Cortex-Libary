@@ -20,7 +20,7 @@ Ziel: Sobald der Server wieder läuft, kann die Sandbox reproduzierbar aufgebaut
 - Paperless-ngx: `3.3.0`
 - PostgreSQL: `18`
 - Valkey: `9-alpine`
-- Paperless-GPT: `0.29.0` als Zielstand; Image-Verfügbarkeit wird vor Start geprüft.
+- Paperless-GPT: `v0.29.0` (Registry-Tag mit v-Präfix; `0.29.0` existiert nicht) als Zielstand; Image-Verfügbarkeit wird vor Start geprüft.
 
 ## Schnellstart, wenn ATLAS wieder läuft
 

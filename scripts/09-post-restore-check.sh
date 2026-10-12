@@ -2,8 +2,8 @@
 set -euo pipefail
 OPT=/opt/atlas-sandbox/module03; cd "$OPT/compose"
 docker compose exec -T webserver document_sanity_checker
-SEC=/etc/atlas/secrets/module03-sandbox; USER=$(cat "$SEC/paperless_admin_user"); PASS=$(cat "$SEC/paperless_admin_password")
-PAYLOAD=$(python3 - "$USER" "$PASS" <<'PYCHECK'
+SEC=/etc/atlas/secrets/module03-sandbox; ADMIN_USER=$(cat "$SEC/paperless_admin_user"); ADMIN_PASS=$(cat "$SEC/paperless_admin_password")
+PAYLOAD=$(python3 - "$ADMIN_USER" "$ADMIN_PASS" <<'PYCHECK'
 import json,sys
 print(json.dumps({'username':sys.argv[1],'password':sys.argv[2]}))
 PYCHECK

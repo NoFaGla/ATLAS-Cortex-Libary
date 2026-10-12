@@ -6,6 +6,7 @@ UPLOAD=0; [ "${1:-}" = "--upload" ] && UPLOAD=1
 [ "$UPLOAD" -eq 0 ] || command -v rclone >/dev/null || { echo "rclone fehlt" >&2; exit 1; }
 OPT=/opt/atlas-sandbox/module03; SRV=/srv/atlas-sandbox/module03; VAR=/var/lib/atlas-sandbox/module03; SEC=/etc/atlas/secrets/module03-sandbox
 STAMP=$(date -u +%Y%m%dT%H%M%SZ); BASE="$SRV/backup-staging/$STAMP"; CURRENT="$BASE/current"
+umask 077
 mkdir -p "$CURRENT"/{opt,srv,var,etc,database,paperless-export,docker-volumes,manifest}
 cd "$OPT/compose"
 cleanup(){ docker compose --profile ai start >/dev/null 2>&1 || true; }; trap cleanup EXIT
@@ -36,6 +37,9 @@ echo "LOCAL_BACKUP=$BASE"
 if [ "$UPLOAD" -eq 1 ]; then
   CONF="$SEC/rclone.conf"; [ -s "$CONF" ] || { echo "STOP: $CONF fehlt" >&2; exit 1; }
   export RCLONE_CONFIG="$CONF"; TARGET="atlascrypt:M03-Sandbox"
+  # Backup enthält Secrets: Upload nur, wenn atlascrypt tatsächlich ein crypt-Remote ist.
+  rclone config dump | python3 -c 'import json,sys; d=json.load(sys.stdin).get("atlascrypt",{}); sys.exit(0 if d.get("type")=="crypt" else 1)' \
+    || { echo "STOP: Remote atlascrypt fehlt oder ist kein crypt-Remote; unverschlüsselter Upload verweigert" >&2; exit 1; }
   rclone sync "$CURRENT/" "$TARGET/current" --backup-dir "$TARGET/versions/$STAMP" --create-empty-src-dirs --checkers 4 --transfers 2 --checksum
   rclone copyto "$BASE/SHA256SUMS" "$TARGET/manifests/$STAMP-SHA256SUMS"
   rclone check "$CURRENT/" "$TARGET/current" --one-way --checksum

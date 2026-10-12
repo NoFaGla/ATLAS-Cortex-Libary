@@ -7,6 +7,11 @@ services:
     volumes:
       - redisdata:/data
     networks: [m03]
+    healthcheck:
+      test: ["CMD", "valkey-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
 
   db:
     image: docker.io/library/postgres:18
@@ -32,12 +37,17 @@ services:
       db:
         condition: service_healthy
       broker:
-        condition: service_started
+        condition: service_healthy
     ports:
       - "127.0.0.1:18000:8000"
     env_file: [./paperless.env]
     environment:
       PAPERLESS_REDIS: redis://broker:6379
+      # Paperless 3.x bindet standardmäßig auf '::' (IPv6) und startet auf Hosts ohne IPv6 nicht.
+      # Nur container-intern; Host-Exposure bleibt ausschließlich 127.0.0.1 (siehe ports).
+      PAPERLESS_BIND_ADDR: 0.0.0.0
+      USERMAP_UID: ${HOST_UID:-1000}
+      USERMAP_GID: ${HOST_GID:-1000}
       PAPERLESS_DBHOST: db
       PAPERLESS_DBENGINE: postgresql
       PAPERLESS_DBNAME: paperless

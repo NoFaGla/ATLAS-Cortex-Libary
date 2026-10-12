@@ -2,9 +2,9 @@
 set -euo pipefail
 [ "${EUID}" -eq 0 ] || { echo "Bitte mit sudo/root ausführen." >&2; exit 1; }
 SEC=/etc/atlas/secrets/module03-sandbox
-USER=$(cat "$SEC/paperless_admin_user")
-PASS=$(cat "$SEC/paperless_admin_password")
-PAYLOAD=$(python3 - "$USER" "$PASS" <<'PYTOKEN'
+ADMIN_USER=$(cat "$SEC/paperless_admin_user")
+ADMIN_PASS=$(cat "$SEC/paperless_admin_password")
+PAYLOAD=$(python3 - "$ADMIN_USER" "$ADMIN_PASS" <<'PYTOKEN'
 import json,sys
 print(json.dumps({'username':sys.argv[1],'password':sys.argv[2]}))
 PYTOKEN
