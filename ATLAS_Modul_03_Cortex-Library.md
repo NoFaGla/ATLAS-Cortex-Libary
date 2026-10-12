@@ -13,7 +13,7 @@ Abgrenzung: Modul 00–02 und `/srv/cortex` bleiben unverändert; diese Referenz
 |---|---|---|
 | Paperless-ngx | 3.3.0 | 127.0.0.1:18000 |
 | PostgreSQL / Valkey | 18 / 9-alpine | nur internes Docker-Netz |
-| Paperless-GPT (optional) | v0.29.0 | 127.0.0.1:18080 (ohne eigene Auth → nur hinter Cloudflare Access) |
+| Paperless-GPT (optional) | v0.30.0 | 127.0.0.1:18080 (ohne eigene Auth → nur hinter Cloudflare Access) |
 | library-read (HTTP / MCP stdio) | 0.2.0 | 127.0.0.1:18090 / stdio |
 | library-ingest (HTTP) | 0.2.0 | 127.0.0.1:18091 |
 | ATLAS-Registry (SQLite, Schema v1) | – | `/var/lib/atlas-sandbox/module03/registry` |

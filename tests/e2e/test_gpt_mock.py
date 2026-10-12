@@ -1,4 +1,4 @@
-"""Paperless-GPT v0.29.0 (echtes Image) gegen einen lokalen Mock-LLM (OpenAI-kompatibel) und echtes Paperless.
+"""Paperless-GPT v0.30.0 (echtes Image) gegen einen lokalen Mock-LLM (OpenAI-kompatibel) und echtes Paperless.
 
 Prüft Metadatenextraktion (Titel, Datum, Korrespondent, Dokumenttyp, Tags), Vorrang von Nutzerhinweisen, Fehlerbehandlung
 (ungültige Antworten, HTTP-Fehler, Timeout, nicht erreichbarer Endpunkt) und Erholung. Ein ECHTER LLM ist hier nicht beteiligt.
@@ -68,7 +68,9 @@ def w(tmp_path_factory):
     wc = WriteClient(URL, TOKEN)
     types_before = {t["name"] for t in admin.list_all("/api/document_types/")}
     tags_before = {t["name"] for t in admin.list_all("/api/tags/")}
-    return dict(tmp=tmp, manifest=manifest, admin=admin, reg=reg, ing=ing, wc=wc, types_before=types_before, tags_before=tags_before)
+    corr_before = {c["name"] for c in admin.list_all("/api/correspondents/")}
+    return dict(tmp=tmp, manifest=manifest, admin=admin, reg=reg, ing=ing, wc=wc, types_before=types_before, tags_before=tags_before,
+                corr_before=corr_before)
 
 
 def ingest(w, tid, hints=()):
@@ -113,6 +115,8 @@ def h(field, value):
 def assert_taxonomy_intact(w):
     assert {t["name"] for t in w["admin"].list_all("/api/document_types/")} == w["types_before"]  # kein Typ-Wildwuchs
     assert {t["name"] for t in w["admin"].list_all("/api/tags/")} == w["tags_before"]  # keine neuen Tags
+    # D20: Korrespondenten legt nie die KI an (AUTO_GENERATE_CORRESPONDENTS=false)
+    assert {c["name"] for c in w["admin"].list_all("/api/correspondents/")} == w["corr_before"], "KI hat einen Korrespondenten angelegt (D20)"
 
 
 def test_happy_path_metadata_and_user_priority(w):
@@ -126,7 +130,8 @@ def test_happy_path_metadata_and_user_priority(w):
     OBS["happy_T01"], OBS["happy_T02"], OBS["happy_T05"] = ({k: (sorted(v) if isinstance(v, set) else v) for k, v in s.items() if k != "fields"} for s in (s_1, s_2, s_3))
     # Metadaten aus dem LLM
     assert s_2["title"] == "Verdienstabrechnung Februar 2026" and s_2["created"] == "2026-02-28"  # korrigiert das Paperless-Raten (2026-02-01)
-    assert s_2["correspondent"] == "Muster Arbeitgeber GmbH" and "Thema/Finanzen" in s_2["tags"]
+    # D20: "Muster Arbeitgeber GmbH" existiert nicht -> das LLM schlägt ihn vor, Paperless-GPT legt ihn NICHT an
+    assert s_2["correspondent"] is None and "Thema/Finanzen" in s_2["tags"]
     assert s_1["title"] == "Verdienstabrechnung Januar 2026"
     # Vorrang expliziter Nutzerangaben vor dem LLM
     assert s_1["correspondent"] == "Beispiel Wohnbau GmbH" and s_1["created"] == "2026-01-31"
@@ -147,10 +152,6 @@ def test_happy_path_metadata_and_user_priority(w):
     # Originale unverändert
     for a, sha in ((a1, s1), (a2, s2), (a3, s3)):
         assert hashlib.sha256(w["wc"].download_original(w["reg"].get(a)["backend_id"])).hexdigest() == sha
-    assert_taxonomy_intact_except_correspondents(w)
-
-
-def assert_taxonomy_intact_except_correspondents(w):
     assert_taxonomy_intact(w)
 
 

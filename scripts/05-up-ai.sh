@@ -5,7 +5,7 @@ SEC=/etc/atlas/secrets/module03-sandbox/paperless-gpt.env
 if grep -Eq 'REPLACE_(AFTER_CORE_START|MODEL|SECRET)' "$SEC"; then echo "STOP: $SEC enthält Platzhalter." >&2; exit 1; fi
 cd /opt/atlas-sandbox/module03/compose
 if ! docker compose --profile ai pull paperless-gpt; then
-  echo "STOP: gepinntes 0.29.0-Image nicht pullbar. Nicht auf latest wechseln; Version bewusst prüfen." >&2
+  echo "STOP: gepinntes v0.30.0-Image nicht pullbar. Nicht auf latest wechseln; Version bewusst prüfen." >&2
   exit 1
 fi
 docker compose --profile ai up -d paperless-gpt

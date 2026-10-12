@@ -4,7 +4,7 @@
 | Dienst | Port | Start |
 |---|---|---|
 | Paperless-ngx 3.3.0 | 18000 | Compose (`scripts/02-up-core.sh`) |
-| Paperless-GPT v0.29.0 | 18080 | Compose-Profil `ai` (`scripts/05-up-ai.sh`) |
+| Paperless-GPT v0.30.0 | 18080 | Compose-Profil `ai` (`scripts/05-up-ai.sh`) |
 | library-read (HTTP) | 18090 | systemd `atlas-library-read` |
 | library-ingest (HTTP) | 18091 | systemd `atlas-library-ingest` |
 | library-read (MCP) | stdio | vom Client gestartet: `python3 -m atlas_library.mcp_read` mit `ATLAS_*`-Umgebung |
@@ -19,6 +19,10 @@
 `Status/Unverarbeitet` → (Paperless-OCR) → ATLAS-ID gesetzt → optional Paperless-GPT (`ATLAS_GPT_ENABLED=1`) → `Status/Verarbeitet` oder `Status/Prüfen`.
 `Status/Prüfen` heißt: Mensch muss prüfen (GPT fehlgeschlagen, nichts geändert, unplausibler Titel, unbekannte Taxonomie-Hinweise, nicht verarbeitbare Datei).
 Fehlgeschlagene GPT-Dokumente: `System/Paperless-GPT-Failed` entfernen und `System/Paperless-GPT-Queue` setzen, um erneut zu versuchen.
+
+## Korrespondenten (D20)
+Paperless-GPT legt **keine** Korrespondenten an (`AUTO_GENERATE_CORRESPONDENTS=false`). Fehlt ein Korrespondent, bleibt das Feld leer und der Dateiname enthält `ohne Korrespondent`.
+Neue Korrespondenten legt der Mensch in Paperless an (Matching `Kein`/manuell) und weist sie zu; ab dann kann Paperless-GPT sie für weitere Dokumente vorschlagen.
 
 ## Duplikate, Versionen, Löschen
 - Bit-identische Duplikate: `library-ingest` meldet `duplicate`; Paperless markiert direkt konsumierte Duplikate. **Nie automatisch gelöscht.**

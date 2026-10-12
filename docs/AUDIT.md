@@ -14,7 +14,7 @@ Consume-Dateien nicht lesbar für Paperless; `OCR_PROVIDER=llm` ohne Vision-Mode
 | P1 | `rclone sync` repariert bei Cloud-Bit-Rot (gleiche Größe/Zeit) nichts; `check --checksum` bei Crypt unzuverlässig | **behoben** (Verifikation per Download, Reparatur-Upload mit `--ignore-times`) |
 | P1 | Unterbrochener Upload konnte ein scheinbar gültiges Backup hinterlassen | **behoben** (Daten zuerst, `SHA256SUMS` zuletzt; Restore prüft Summen + Dateianzahl) — getestet |
 | P1 | Race: gleichzeitiger Import desselben Dokuments konnte zwei ATLAS-IDs erzeugen | **behoben** (`BEGIN IMMEDIATE`, 12-Thread-Test) |
-| P1 | Paperless-GPT erzeugte bei Chat-Prosa einen **Müll-Korrespondenten** (echter FAIL im Mock-Test) | **behoben** (Plausibilitätsschranke → `Status/Prüfen`); Aufräumen des Objekts bleibt Mensch (D20/D21) |
+| P1 | Paperless-GPT erzeugte bei Chat-Prosa einen **Müll-Korrespondenten** (echter FAIL im Mock-Test) | **behoben** (Plausibilitätsschranke → `Status/Prüfen`); seit D20 entstehen solche Objekte gar nicht mehr; Altbestände räumt der Mensch auf |
 | P2 | GPT meldet leere/abgeschnittene LLM-Antworten als „Done“ | **behoben** (D21) |
 | P2 | Hängender LLM-Endpunkt blockiert GPT-Worker dauerhaft (kein Client-Timeout konfigurierbar) | **akzeptiert/dokumentiert**: Dokument bleibt unverändert in der Queue; Erholung per `restart paperless-gpt` getestet. **Offen:** externer Watchdog (siehe unten) |
 | P2 | `06-backup` meldete „fertig“, während Container noch starteten | **behoben** (D15) |
@@ -39,7 +39,7 @@ Consume-Dateien nicht lesbar für Paperless; `OCR_PROVIDER=llm` ohne Vision-Mode
 | Hardware-/Performance-/Lasttest, Host-Härtung auf ATLAS | **extern** |
 | systemd-Dienste real starten (kein systemd im Testcontainer) | **extern** — Units statisch + `systemd-analyze` (Exposure 1.5) geprüft; Dienste als Prozesse E2E-getestet |
 | GPT-Watchdog bei hängendem LLM | **offen** (Empfehlung: systemd-Timer, der `System/Paperless-GPT-Queue`-Dokumente älter als N Minuten erkennt und `restart` auslöst) |
-| Entscheidung D20 (Korrespondenten automatisch anlegen) | **offen — Betreiber** |
+| Entscheidung D20 (Korrespondenten automatisch anlegen) | **entschieden: nein** (`AUTO_GENERATE_CORRESPONDENTS=false`, siehe `DEVIATIONS.md`) |
 | Reale Scans (OCR-Qualität), Jahres-/Mehrsprachigkeitsfälle jenseits Deutsch/Englisch | **offen** |
 | `01-bootstrap.sh` kopiert bei fehlendem rsync `.git` mit | offen (niedrig) |
 | Semantische Duplikate (zweiter Scan) | akzeptiert: eigener Eintrag, Mensch entscheidet |

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Lokaler Mock-LLM-Endpunkt (OpenAI-kompatibel: /v1/chat/completions) für Paperless-GPT-Tests. Nur Standardbibliothek.
 
-Deterministische „Antworten“ aus dem Dokumenttext (Prompt-Typen von Paperless-GPT v0.29.0: Titel, Tags, Korrespondent,
+Deterministische „Antworten“ aus dem Dokumenttext (Prompt-Typen von Paperless-GPT v0.30.0: Titel, Tags, Korrespondent,
 Dokumenttyp, Erstellungsdatum). Fehlermodi per ``POST /_mode {"mode": "..."}``; Statistik per ``GET /_stats``.
 
 Modi: ok | prose (geschwätzige Antwort) | invented (erfundene Typen/Tags/Datum) | empty | http500 | http429 | invalid_json |

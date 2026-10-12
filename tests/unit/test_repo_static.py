@@ -43,7 +43,10 @@ def test_ports_bound_to_loopback_only():
 
 def test_paperless_gpt_is_opt_in_profile():
     assert COMPOSE["services"]["paperless-gpt"]["profiles"] == ["ai"]
-    assert COMPOSE["services"]["paperless-gpt"]["environment"]["AUTO_GENERATE_DOCUMENT_TYPE"] == "false"
+    env = COMPOSE["services"]["paperless-gpt"]["environment"]
+    assert env["AUTO_GENERATE_DOCUMENT_TYPE"] == "false"
+    assert env["CREATE_NEW_TAGS"] == "false"
+    assert env["AUTO_GENERATE_CORRESPONDENTS"] == "false"  # D20: KI legt keine Korrespondenten an
 
 
 def test_secrets_via_files_not_inline():
