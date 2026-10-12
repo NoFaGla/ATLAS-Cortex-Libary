@@ -122,7 +122,12 @@ class WriteClient(ReadClient):
         res = self._get_json(f"{path}?{qs}").get("results", [])
         return res[0]["id"] if len(res) == 1 else None
 
-    def apply_hints(self, doc_id: str | int, hints: dict, extra_tags: list[str] | None = None) -> dict:
+    def tag_names(self, doc: dict) -> set[str]:
+        by_id = {t["id"]: t["name"] for t in self._get_json("/api/tags/?page_size=200").get("results", [])}
+        return {by_id[i] for i in doc.get("tags", []) if i in by_id}
+
+    def apply_hints(self, doc_id: str | int, hints: dict, extra_tags: list[str] | None = None,
+                    remove_tags: list[str] | None = None) -> dict:
         """Wendet freigegebene Hinweise an. Unbekannte Korrespondenten/Typen/Tags werden NICHT angelegt,
         sondern als ``unresolved`` gemeldet (Dokument bekommt dann Status/Prüfen)."""
         body: dict = {}
@@ -147,7 +152,12 @@ class WriteClient(ReadClient):
             else:
                 tag_ids.append(tid)
         doc = self.get_document(doc_id)
-        body["tags"] = sorted(set(doc.get("tags", [])) | set(tag_ids))
+        drop = set()
+        for name in remove_tags or []:
+            tid = self._lookup("/api/tags/", name)
+            if tid is not None:
+                drop.add(tid)
+        body["tags"] = sorted((set(doc.get("tags", [])) | set(tag_ids)) - drop)
         fields = list(doc.get("custom_fields", []))
         prec = hints.get("date_precision")
         if prec:

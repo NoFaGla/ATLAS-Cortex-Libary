@@ -57,6 +57,16 @@ def merge_hints(hints: list[dict]) -> dict:
     return {k: v for k, (_, v) in best.items()}
 
 
+def user_fields(hints: list[dict]) -> list[str]:
+    """Felder, deren Gewinner-Hinweis eine explizite Nutzerangabe ist (Priorität Nutzer > extrahiert > LLM)."""
+    merged_prio: dict[str, int] = {}
+    for h in hints:
+        f, src = h.get("field"), h.get("source")
+        if f in ALLOWED_HINT_FIELDS and src in SOURCE_PRIORITY:
+            merged_prio[f] = min(merged_prio.get(f, 99), SOURCE_PRIORITY[src])
+    return sorted(f for f, p in merged_prio.items() if p == 0)
+
+
 class LibraryIngest:
     def __init__(self, registry: Registry, consume_dir: str | Path, state_dir: str | Path, token: str,
                  max_bytes: int = DEFAULT_MAX_BYTES, consume_owner: tuple[int, int] | None = None):
@@ -108,10 +118,10 @@ class LibraryIngest:
             raise IngestError("Zieldatei existiert bereits")
         os.replace(tmp, target)
         (self.state / "hints" / f"{atlas_id}.json").write_text(json.dumps(
-            {"hints": merged, "sha256": sha, "file": target.name}))
+            {"hints": merged, "user_fields": user_fields(hints or []), "sha256": sha, "file": target.name, "finalized": False}))
         return {"status": "queued", "atlas_id": atlas_id, "ref": self.registry.pin(atlas_id), "consume_file": target.name}
 
-    def reconcile(self, token: str, paperless: WriteClient) -> list[dict]:
+    def reconcile(self, token: str, paperless: WriteClient, queue_for_gpt: bool = False) -> list[dict]:
         """Ordnet pending-Einträge nach Paperless-MD5 den Paperless-Dokumenten zu und schreibt das ATLAS-ID-Feld."""
         self._auth(token)
         results = []
@@ -130,7 +140,9 @@ class LibraryIngest:
                 doc = found[0]
                 paperless.set_atlas_id(doc["id"], atlas_id)
                 self.registry.link_backend(atlas_id, str(doc["id"]), doc.get("title"))
-                applied = paperless.apply_hints(doc["id"], info.get("hints", {}), ["Status/Unverarbeitet"])
+                # Reihenfolge laut Lifecycle: OCR (Paperless) -> ATLAS-ID -> (Paperless-GPT) -> Verarbeitet | Prüfen
+                extra = ["Status/Unverarbeitet"] + (["System/Paperless-GPT-Queue"] if queue_for_gpt else [])
+                applied = paperless.apply_hints(doc["id"], info.get("hints", {}), extra)
                 if applied["unresolved"]:
                     paperless.apply_hints(doc["id"], {}, ["Status/Prüfen"])
                 results.append({"atlas_id": atlas_id, "status": "linked", "paperless_id": doc["id"],
@@ -180,4 +192,30 @@ class LibraryIngest:
             if new != r["status"]:
                 self.registry.set_status(r["atlas_id"], new)
                 out.append({"atlas_id": r["atlas_id"], "from": r["status"], "to": new})
+        return out
+
+    def finalize(self, token: str, paperless: WriteClient) -> list[dict]:
+        """Nach Paperless-GPT: explizite Nutzerhinweise haben Vorrang vor LLM-Vorschlägen und werden erneut gesetzt;
+        Status-Tag wird nachgeführt (Done -> Status/Verarbeitet, Failed -> Status/Prüfen). Ohne GPT-Ergebnis passiert nichts."""
+        self._auth(token)
+        out = []
+        for f in sorted((self.state / "hints").glob("*.json")):
+            info = json.loads(f.read_text())
+            e = self.registry.get(f.stem)
+            if info.get("finalized") or e is None or e["status"] != "active":
+                continue
+            doc = paperless.get_document(e["backend_id"])
+            names = paperless.tag_names(doc)
+            if "System/Paperless-GPT-Failed" in names:
+                paperless.apply_hints(doc["id"], {}, ["Status/Prüfen"], ["Status/Unverarbeitet", "System/Paperless-GPT-Queue"])
+                outcome = "needs_review"
+            elif "System/Paperless-GPT-Done" in names:
+                mine = {k: v for k, v in info.get("hints", {}).items() if k in info.get("user_fields", []) and k in ("title", "created", "date_precision", "tags")}
+                paperless.apply_hints(doc["id"], mine, ["Status/Verarbeitet"], ["Status/Unverarbeitet"])
+                outcome = "processed"
+            else:
+                continue
+            info["finalized"] = True
+            f.write_text(json.dumps(info))
+            out.append({"atlas_id": f.stem, "status": outcome})
         return out

@@ -37,6 +37,7 @@ PY
 }
 
 stack_down() {
+  mockllm_down
   if [ -n "${WORK:-}" ] && [ -d "$WORK/compose" ]; then
     (cd "$WORK/compose" && docker compose --profile ai down -v --remove-orphans >/dev/null 2>&1) || true
     rm -rf "$WORK"
@@ -53,3 +54,20 @@ assert_loopback_only() {
   if [ "$n" -lt 1 ] || [ "$bad" -ne 0 ]; then echo "FAIL: $svc nicht ausschließlich an 127.0.0.1 veröffentlicht ($ports)"; return 1; fi
   echo "PASS: $svc veröffentlicht $n Port(s) ausschließlich an 127.0.0.1"
 }
+
+# Mock-LLM (OpenAI-kompatibel) als Container im Test-Netz, ausgeführt mit dem bereits gepinnten Paperless-Image (enthält python3).
+mockllm_up() {
+  local img
+  img=$(docker compose config --images | grep paperless-ngx)
+  docker rm -fv m03-ci-mockllm >/dev/null 2>&1 || true
+  docker run -d --name m03-ci-mockllm --network m03-ci-net --network-alias mockllm -v "$REPO/tests/mockllm:/mock:ro" \
+    --entrypoint python3 "$img" /mock/server.py 8000 >/dev/null
+  for _ in $(seq 1 30); do
+    docker exec m03-ci-mockllm python3 -c 'import urllib.request;urllib.request.urlopen("http://127.0.0.1:8000/_stats",timeout=2)' >/dev/null 2>&1 && return 0
+    sleep 1
+  done
+  echo "FAIL: Mock-LLM startet nicht"; return 1
+}
+mockllm_mode() { docker exec m03-ci-mockllm python3 -c 'import sys,json,urllib.request;urllib.request.urlopen(urllib.request.Request("http://127.0.0.1:8000/_mode",data=json.dumps({"mode":sys.argv[1]}).encode(),method="POST"),timeout=5)' "$1"; }
+mockllm_stats() { docker exec m03-ci-mockllm python3 -c 'import urllib.request;print(urllib.request.urlopen("http://127.0.0.1:8000/_stats",timeout=5).read().decode())'; }
+mockllm_down() { docker rm -fv m03-ci-mockllm >/dev/null 2>&1 || true; }

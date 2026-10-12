@@ -81,7 +81,9 @@ def test_destructive_scripts_touch_only_sandbox_paths():
 
 
 def test_upload_requires_crypt_remote():
-    assert '"crypt"' in (ROOT / "scripts/06-backup-sandbox.sh").read_text()
+    up = (ROOT / "scripts/12-backup-upload.sh").read_text()
+    assert '"crypt"' in up and "filename_encryption" in up and "directory_name_encryption" in up
+    assert "12-backup-upload.sh" in (ROOT / "scripts/06-backup-sandbox.sh").read_text()
 
 
 def test_no_private_files_tracked():

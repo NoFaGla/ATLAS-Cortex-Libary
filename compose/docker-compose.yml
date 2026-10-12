@@ -83,6 +83,8 @@ services:
       LLM_LANGUAGE: German
       AUTO_GENERATE_DOCUMENT_TYPE: "false"
       CREATE_NEW_TAGS: "false"
+      # Bereits gesetzte Korrespondenten/Dokumenttypen (Nutzerhinweise aus library-ingest) nicht durch LLM-Vorschläge überschreiben
+      PRESERVE_EXISTING_METADATA: "true"
       LISTEN_INTERFACE: ":8080"
       MANUAL_TAG: System/Paperless-GPT-Manual
       AUTO_TAG: System/Paperless-GPT-Queue

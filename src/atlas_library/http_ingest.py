@@ -83,10 +83,11 @@ def make_handler(ing: LibraryIngest, token: str, paperless: WriteClient, max_byt
     return H
 
 
-def worker(ing: LibraryIngest, token: str, paperless: WriteClient, interval: float, stop: threading.Event) -> None:
+def worker(ing: LibraryIngest, token: str, paperless: WriteClient, interval: float, stop: threading.Event, queue_gpt: bool = False) -> None:
     while not stop.wait(interval):
         try:
-            ing.reconcile(token, paperless)
+            ing.reconcile(token, paperless, queue_gpt)
+            ing.finalize(token, paperless)
             ing.sync_lifecycle(token, paperless)
         except Exception:  # Worker darf nie sterben; Fehler erscheinen im nächsten Lauf erneut
             pass
@@ -106,7 +107,7 @@ def build_from_env(env=os.environ):
 def main() -> None:
     srv, ing, token, pl = build_from_env()
     stop = threading.Event()
-    threading.Thread(target=worker, args=(ing, token, pl, float(os.environ.get("ATLAS_RECONCILE_INTERVAL", "20")), stop),
+    threading.Thread(target=worker, args=(ing, token, pl, float(os.environ.get("ATLAS_RECONCILE_INTERVAL", "20")), stop, os.environ.get("ATLAS_GPT_ENABLED") == "1"),
                      daemon=True).start()
     try:
         srv.serve_forever()
