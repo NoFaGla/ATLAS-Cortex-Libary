@@ -124,6 +124,13 @@ class WriteClient(ReadClient):
         res = self._get_json(f"{path}?{qs}").get("results", [])
         return res[0]["id"] if len(res) == 1 else None
 
+    def correspondent_name(self, corr_id: int | None) -> str | None:
+        return self._get_json(f"/api/correspondents/{int(corr_id)}/").get("name") if corr_id else None
+
+    def clear_correspondent(self, doc_id: str | int) -> None:
+        """Nimmt einen (unplausiblen) Korrespondenten vom Dokument. Das Korrespondenten-OBJEKT wird nie gelöscht."""
+        self._request("PATCH", f"/api/documents/{int(doc_id)}/", {"correspondent": None})
+
     def tag_names(self, doc: dict) -> set[str]:
         by_id = {t["id"]: t["name"] for t in self._get_json("/api/tags/?page_size=200").get("results", [])}
         return {by_id[i] for i in doc.get("tags", []) if i in by_id}

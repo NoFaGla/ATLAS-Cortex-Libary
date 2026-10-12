@@ -64,9 +64,21 @@ def _fingerprint(paperless: WriteClient, doc: dict) -> dict:
     return {"title": doc.get("title"), "created": doc.get("created"), "correspondent": doc.get("correspondent"), "tags": tags}
 
 
+_PROSE = re.compile(r"\*\*|\n|\b(?:based on|the answer is|let me know|i would say|as an ai)\b|\b(?:sure|okay)[,!]", re.I)
+
+
+def looks_like_prose(text: str | None) -> bool:
+    """Erkennt Chat-Prosa statt eines bloßen Werts (LLM hat Prompt-Format ignoriert)."""
+    return bool(text) and bool(_PROSE.search(text) or len(text.split()) > 12)
+
+
+def plausible_name(name: str | None) -> bool:
+    return bool(name) and 1 <= len(name.strip()) <= 80 and not looks_like_prose(name)
+
+
 def plausible_title(title: str | None) -> bool:
     """Heuristik gegen leere/abgeschnittene/ausufernde LLM-Titel (Paperless-GPT meldet solche Fälle als erfolgreich)."""
-    return bool(title) and 5 <= len(title.strip()) <= 120
+    return bool(title) and 5 <= len(title.strip()) <= 120 and not _PROSE.search(title)
 
 
 def user_fields(hints: list[dict]) -> list[str]:
@@ -229,6 +241,15 @@ class LibraryIngest:
             elif "System/Paperless-GPT-Done" in names:
                 now = _fingerprint(paperless, doc)
                 pre = info.get("pre")
+                cname = paperless.correspondent_name(doc.get("correspondent"))
+                if cname is not None and not plausible_name(cname):
+                    # Prosa/Unfug als Korrespondent (LLM ignoriert Format): vom Dokument nehmen, Objekt NICHT löschen (Mensch räumt auf)
+                    paperless.clear_correspondent(doc["id"])
+                    paperless.apply_hints(doc["id"], {}, ["Status/Prüfen"], ["Status/Unverarbeitet"])
+                    info["finalized"] = True
+                    f.write_text(json.dumps(info))
+                    out.append({"atlas_id": f.stem, "status": "needs_review", "reason": "implausible_correspondent", "correspondent_id": doc.get("correspondent")})
+                    continue
                 if (pre is not None and now == pre) or not plausible_title(doc.get("title")):
                     # GPT meldet Done, hat aber nichts geändert oder einen unbrauchbaren Titel geliefert -> menschliche Prüfung
                     paperless.apply_hints(doc["id"], {}, ["Status/Prüfen"], ["Status/Unverarbeitet"])

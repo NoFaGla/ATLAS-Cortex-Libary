@@ -22,17 +22,15 @@ Ziel: Sobald der Server wieder läuft, kann die Sandbox reproduzierbar aufgebaut
 - Valkey: `9-alpine`
 - Paperless-GPT: `v0.29.0` (Registry-Tag mit v-Präfix; `0.29.0` existiert nicht) als Zielstand; Image-Verfügbarkeit wird vor Start geprüft.
 
-## Schnellstart, wenn ATLAS wieder läuft
+## Schnellstart auf ATLAS (Release-ZIP)
 
 ```bash
-unzip M03-CORTEX-LIBRARY-SANDBOX.zip
-cd M03-CORTEX-LIBRARY-SANDBOX
-bash scripts/00-preflight.sh
-sudo bash scripts/01-bootstrap.sh
-sudo /opt/atlas-sandbox/module03/scripts/02-up-core.sh
+sha256sum -c M03-CORTEX-LIBRARY-<version>.zip.sha256 && unzip M03-CORTEX-LIBRARY-<version>.zip -d m03 && cd m03
+./install.sh preflight          # ändert nichts; prüft auch das Release-Manifest (SHA-256 jeder Datei)
+sudo ./install.sh install       # Bootstrap, Core, Token, Taxonomie   (--with-services: library-read/-ingest als systemd-Dienste)
+sudo ./install.sh validate
 ```
-
-Danach **nicht blind weiterlaufen**, sondern `01_BUILD_PLAN.md` und `tests/TESTPLAN.md` abarbeiten.
+Weiter: `docs/INSTALL.md`, `docs/OPERATIONS.md`, `docs/RECOVERY.md`, `docs/SECURITY.md`. **Das ist ein Release-Kandidat (siehe `docs/RELEASE_GATES.md`), nicht produktionsreif.**
 
 ## Sicherheitsprinzip
 
@@ -52,7 +50,7 @@ Webports der Sandbox binden ausschließlich an Loopback:
 /etc/atlas/secrets/module03-sandbox/  Sandbox-Secrets
 ```
 
-## Reihenfolge
+## Reihenfolge (manuell, entspricht dem Installer)
 
 1. Preflight
 2. Bootstrap
@@ -71,3 +69,14 @@ Webports der Sandbox binden ausschließlich an Loopback:
 15. Abnahme
 
 Siehe `01_BUILD_PLAN.md`.
+
+## Repository-Überblick
+```text
+install.sh                Installer: preflight | install | validate | upgrade | recover | service-accounts
+compose/ scripts/         Stack (Digest-gepinnt) und Betriebsskripte 00–14
+src/atlas_library/        Registry (UUIDv7), Asset Store, library-read (HTTP+MCP), library-ingest (HTTP), Taxonomie, synthetische Testdaten
+deploy/                   systemd-Units, Cloudflare Tunnel/Access-Vorlagen
+tests/                    unit/ e2e/ integration/ mockllm/ ; Gesamtlauf: tests/run-all.sh
+docs/                     AUDIT, DEVIATIONS, TESTREPORT, RELEASE_GATES, INSTALL, OPERATIONS, RECOVERY, SECURITY, ...
+ATLAS_Modul_03_Cortex-Library.md   Modulbeschreibung (Release-Kandidat)
+```

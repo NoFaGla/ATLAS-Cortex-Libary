@@ -139,6 +139,9 @@ jobs:
           (cd dist && sha256sum -c ./*.sha256)
           mkdir /tmp/unz && unzip -q dist/*.zip -d /tmp/unz && cd /tmp/unz
           ./install.sh preflight 2>&1 | grep -E "Release-Manifest verifiziert|PASS" 
+          # keine Secrets im Release-Artefakt
+          if grep -rEIl 'sk-ant-[A-Za-z0-9_-]{10,}|ghp_[A-Za-z0-9]{20,}|-----BEGIN [A-Z ]*PRIVATE KEY|AKIA[0-9A-Z]{16}' . ; then echo "FAIL: Secret im Release"; exit 1; fi
+          find . -name '.env' -o -name 'rclone.conf' -o -name '*.pem' -o -name '*.key' | grep . && { echo "FAIL: verbotene Datei im Release"; exit 1; } || echo "PASS: keine Secrets/verbotenen Dateien im Release"
           echo tamper >> scripts/00-preflight.sh
           if ./install.sh preflight >/dev/null 2>&1; then echo "FAIL: Manipulation nicht erkannt"; exit 1; fi
           echo "PASS: manipuliertes Release wird abgelehnt"

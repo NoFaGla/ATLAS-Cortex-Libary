@@ -338,3 +338,11 @@ def test_title_hint_sanitized_and_filename_edge_cases():
     assert sanitize_filename("Ärger mit ß & Co (final) #1.txt") == "Ärger mit ß & Co (final) #1.txt"
     assert sanitize_filename("evil\r\nname\x00.pdf") == "evil__name_.pdf"
     assert len(sanitize_filename("a" * 400 + ".pdf")) == 150 and sanitize_filename("a" * 400 + ".pdf").endswith(".pdf")
+
+
+def test_prose_and_name_plausibility():
+    from atlas_library.ingest import looks_like_prose, plausible_name, plausible_title
+    assert looks_like_prose("Okay, based on the document I would say the answer is: **Unknown**.") and looks_like_prose("a\nb")
+    assert not looks_like_prose("Muster Arbeitgeber GmbH") and not looks_like_prose(None)
+    assert plausible_name("Finanzamt Beispielstadt") and not plausible_name("x" * 81) and not plausible_name("**Unknown**") and not plausible_name("")
+    assert not plausible_title("Okay, here is the title") and plausible_title("Verdienstabrechnung Januar 2026")

@@ -1,36 +1,45 @@
-# Audit M03 Cortex-Library (Stand 2026-10-12)
+# Audit M03 Cortex-Library (Stand 2026-10-12, Abschluss der Cloud-Phase)
 
-## Befunde und Status
+Status: **behoben** · **akzeptiert** (bewusst, begründet) · **offen** · **extern** (nur auf ATLAS/mit Konto lösbar).
 
+## Befunde aus Phase 0/1 (alle behoben)
+IPv6-Bind von Paperless 3.3.0; Restore ohne Bestätigungsschalter; Upload ohne Crypt-Pflicht; GPT-Tag `v0.29.0`; `USERMAP_UID/GID`; Prüfsummen vor Destroy;
+`umask` im Staging; `.gitignore`; Valkey-Healthcheck; falsches PASS beim Loopback-Test (`ss` fehlte); Taxonomie-`owner` (unsichtbar für Dienstkonten);
+Consume-Dateien nicht lesbar für Paperless; `OCR_PROVIDER=llm` ohne Vision-Modell; Datumsgenauigkeit/Dateinamen (`docs/DATUMSGENAUIGKEIT.md`).
+
+## Neue Befunde in dieser Phase
 | Prio | Befund | Status |
-|------|--------|--------|
-| P1 | Paperless 3.3.0 startet nicht auf Docker-Hosts ohne IPv6 (Default-Bind `::`, `RuntimeError: Address family not supported`). Real reproduziert. | **behoben** (`PAPERLESS_BIND_ADDR=0.0.0.0`, D4) |
-| P1 | `08-restore-sandbox.sh` löschte Sandbox-Pfade (`rm -rf`) ohne Bestätigungsschalter. | **behoben** (D6) |
-| P1 | `06 --upload` prüfte nicht, dass `atlascrypt` ein crypt-Remote ist; das Backup enthält alle Sandbox-Secrets → Risiko unverschlüsselten Uploads. | **behoben** (Abbruch, wenn Remote-Typ ≠ `crypt`) |
-| P2 | Paperless-GPT-Tag in Doku `0.29.0`, real nur `v0.29.0` vorhanden. | **behoben** (Doku, D3) |
-| P2 | Webserver ohne `USERMAP_UID/GID`, obwohl Bootstrap Bind-Mounts auf `HOST_UID` chownt. | **behoben** (D5) |
-| P2 | `07-destroy` prüfte die Backup-Prüfsummen nicht vor dem Löschen. | **behoben** (`sha256sum -c`) |
-| P2 | Backup-Staging mit Standard-umask (Secrets-Kopie in 0755-Verzeichnissen). | **behoben** (`umask 077`) |
-| P3 | `.gitignore` ohne `rclone.conf`, Dumps, Archive. | **behoben** |
-| P3 | CI nur Syntax/YAML. | **behoben** (shellcheck, Compose-Config, Secret-Scan, pytest, Core-Integration) |
-| P3 | Skripte `03`/`09` überschrieben die Shell-Variable `USER`; SC2015 in `05`. | **behoben** |
-| P3 | Valkey ohne Healthcheck (`service_started`). | **behoben** |
-| P1 | `core-smoke.sh` und der erste GPT-Test prüften „nur Loopback“ mit `ss`, das im Runner/Container fehlt → **falsches PASS** möglich (in dieser Phase entdeckt). | **behoben** (`assert_loopback_only` über Docker-Port-Zuordnung, Negativtest: erkennt `0.0.0.0`) |
-| P1 | Von Admin angelegte Taxonomie gehört dem Admin (`owner`) und ist für Dienstkonten unsichtbar → Hinweise würden still ignoriert. | **behoben** (D12) |
-| P1 | CI-Fehler Run #2/#3: SC2015 in `07-destroy` (neuere shellcheck-Version). | **behoben** |
-| P2 | Paperless-Auto-Datum erfindet/rät Tage (`2026-02-01` statt `28.02.2026`), Dateiname `none`-Platzhalter, `/` im Titel → Unterverzeichnis. | **behoben/entschärft** (`docs/DATUMSGENAUIGKEIT.md`) |
-| P2 | Consume-Datei muss für den Paperless-Benutzer lesbar sein (root-owned 0640 wurde nicht konsumiert). | **behoben** (`consume_owner`, im Betrieb Dienst als `HOST_UID`) |
-| P2 | Paperless-GPT-Variablennamen gegen Upstream-README v0.29.0 geprüft; `OCR_PROVIDER=llm` ohne Vision-Modell fehlerhaft. | **behoben** (D8) |
-| offen | Paperless-GPT: LLM-gestützte Anreicherung ungetestet (kein LLM-Zugang). Image-Default `OCR_PROVIDER=llm` deaktiviert OCR nur mit Warnung. | BLOCKED |
-| offen | `01-bootstrap.sh` kopiert bei fehlendem rsync auch `.git` nach `/opt/...`. | offen (niedrig) |
-| offen | Semantische Duplikate (T12 zweiter Scan) werden nicht automatisch erkannt – nur bit-identische. Bewusst: Mensch entscheidet, keine KI-Löschung/Merge. | akzeptiert |
-| offen | `rclone`-crypt-Upload/`rclone check` und OneDrive-Restore ungetestet (kein rclone/Konto). | BLOCKED |
-| offen | `library-read`/`-ingest` laufen noch nicht als Systemdienste (kein Compose-/systemd-Unit, kein Cloudflare Access). | offen |
-| offen | Postgres-Pull von Docker Hub lief in der Cloud in HTTP 429; Digest ist identisch zum `mirror.gcr.io`-Pull (verifiziert). | akzeptiert (D11) |
+|---|---|---|
+| P1 | `SHA256SUMS` enthielt absolute Pfade → nach Cloud-Download an anderem Ort wertlos | **behoben** (relative Pfade) |
+| P1 | `rclone sync` repariert bei Cloud-Bit-Rot (gleiche Größe/Zeit) nichts; `check --checksum` bei Crypt unzuverlässig | **behoben** (Verifikation per Download, Reparatur-Upload mit `--ignore-times`) |
+| P1 | Unterbrochener Upload konnte ein scheinbar gültiges Backup hinterlassen | **behoben** (Daten zuerst, `SHA256SUMS` zuletzt; Restore prüft Summen + Dateianzahl) — getestet |
+| P1 | Race: gleichzeitiger Import desselben Dokuments konnte zwei ATLAS-IDs erzeugen | **behoben** (`BEGIN IMMEDIATE`, 12-Thread-Test) |
+| P1 | Paperless-GPT erzeugte bei Chat-Prosa einen **Müll-Korrespondenten** (echter FAIL im Mock-Test) | **behoben** (Plausibilitätsschranke → `Status/Prüfen`); Aufräumen des Objekts bleibt Mensch (D20/D21) |
+| P2 | GPT meldet leere/abgeschnittene LLM-Antworten als „Done“ | **behoben** (D21) |
+| P2 | Hängender LLM-Endpunkt blockiert GPT-Worker dauerhaft (kein Client-Timeout konfigurierbar) | **akzeptiert/dokumentiert**: Dokument bleibt unverändert in der Queue; Erholung per `restart paperless-gpt` getestet. **Offen:** externer Watchdog (siehe unten) |
+| P2 | `06-backup` meldete „fertig“, während Container noch starteten | **behoben** (D15) |
+| P2 | `upgrade` aus der installierten Kopie hätte die eigenen Quellen gelöscht | **behoben** (Guard + Kopieren-dann-Tauschen) |
+| P2 | `14-security-check.sh`: Quoting-Fehler im eingebetteten Python (vom Installer-`validate` entdeckt, nicht still) | **behoben** |
+| P2 | CI-Runner-UID 1001 ≠ 1000: Paperless konnte importierte Dateien nicht lesen | **behoben** (Besitzer vom Consume-Ordner / `ATLAS_CONSUME_UID`) |
+| P3 | `sanitize_filename` kürzte die Dateiendung weg | **behoben** |
+| P3 | Dienste meldeten Worker-Fehler nicht | **behoben** (nur Exception-Typ auf stderr, keine Inhalte) |
+| – | Restore-Guards haben im Test korrekt abgebrochen (fremde Container/Volumes durch parallelen Dev-Stack) | funktioniert wie vorgesehen |
 
-## Priorisierte TODO-Liste (nächste Schritte)
-1. LLM-Testkonto/Dummy-Endpoint für Paperless-GPT-Funktionstest (Titel/Datum/Korrespondent/Custom Fields, Fehlerstatus statt Endlosschleife).
-2. rclone-crypt-Upload + `rclone check` + Cloud-Restore gegen Testremote (lokal `crypt` über `local`-Backend möglich → als nächster Schritt prüfen).
-3. systemd-Units/Compose-Dienste für library-read/-ingest (Loopback, eigene Benutzer), Cloudflare Access vor den UIs.
-4. Echte-Scan-Qualität (OCR) mit anonymisierten Beispielen; Jahres-Genauigkeit mit Testdokument.
-5. Hardware-/Performance-Test und Abnahme auf dem ATLAS-Server (Gate L).
+## Sicherheit / Abhängigkeiten
+- bandit: 0 Funde (2 begründete `nosec`). pip-audit: keine bekannten Schwachstellen (Paket ohne Laufzeitabhängigkeiten).
+- Trivy (`docs/SECURITY_SCAN.md`): Upstream-Images mit fixbaren HIGH-Funden (paperless-ngx 9, paperless-gpt 10, postgres 24 + 1 CRITICAL in `gosu`, valkey 0). **offen/akzeptiert bis zum bewussten Digest-Update** vor Produktivnutzung.
+- Secret-Scan über die gesamte Git-Historie: sauber. CI ohne Secrets.
+
+## Offen / extern
+| Punkt | Status |
+|---|---|
+| Echter LLM-Test (OpenAI/Anthropic) | **extern/BLOCKED** — Skript vorbereitet (`gpt-real-llm.sh`, `docs/GPT_REAL_LLM_TEST.md`) |
+| Echter OneDrive-Upload/-Restore | **extern/BLOCKED** — Konfiguration + gesamte Kette mit lokalem Crypt-Remote getestet |
+| Cloudflare Access live (Tunnel, IdP/MFA, Durchsetzung) | **extern** — Konfiguration automatisch geprüft |
+| Hardware-/Performance-/Lasttest, Host-Härtung auf ATLAS | **extern** |
+| systemd-Dienste real starten (kein systemd im Testcontainer) | **extern** — Units statisch + `systemd-analyze` (Exposure 1.5) geprüft; Dienste als Prozesse E2E-getestet |
+| GPT-Watchdog bei hängendem LLM | **offen** (Empfehlung: systemd-Timer, der `System/Paperless-GPT-Queue`-Dokumente älter als N Minuten erkennt und `restart` auslöst) |
+| Entscheidung D20 (Korrespondenten automatisch anlegen) | **offen — Betreiber** |
+| Reale Scans (OCR-Qualität), Jahres-/Mehrsprachigkeitsfälle jenseits Deutsch/Englisch | **offen** |
+| `01-bootstrap.sh` kopiert bei fehlendem rsync `.git` mit | offen (niedrig) |
+| Semantische Duplikate (zweiter Scan) | akzeptiert: eigener Eintrag, Mensch entscheidet |

@@ -184,6 +184,21 @@ def test_llm_failure_modes_end_in_failed_not_in_a_loop(w, mode):
     assert_taxonomy_intact(w)
 
 
+def test_prose_answers_are_observed(w):
+    """Geschwätzige LLM-Antworten („Okay, based on ... **X**“): Verhalten von Paperless-GPT beobachten und Schäden begrenzen."""
+    mock_mode("prose")
+    a, sha = ingest(w, "T09")
+    link(w, [a])
+    assert settle(w, [a], 420)
+    s = state(w, a)
+    OBS["prose"] = {"title": s["title"][:100], "correspondent": s["correspondent"], "created": s["created"], "tags": sorted(s["tags"])}
+    assert_taxonomy_intact(w)
+    assert hashlib.sha256(w["wc"].download_original(s["id"])).hexdigest() == sha
+    assert s["type"] is None
+    assert "Okay" not in (s["correspondent"] or ""), f"Prosa als Korrespondent übernommen: {s['correspondent']!r}"
+    assert "Okay" not in s["title"] or "Status/Prüfen" in s["tags"], "Prosa-Titel ohne menschliche Prüfung"
+
+
 def test_recovery_after_failure_requeue(w):
     """Menschlicher Wiederanlauf: Failed-Tag entfernen, Queue setzen, LLM wieder ok."""
     mock_mode("ok")

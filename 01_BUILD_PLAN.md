@@ -1,11 +1,11 @@
 # Buildplan M03-CORTEX-LIBRARY-SANDBOX
 
-## Status (Cloud-Stand 2026-10-12)
+## Status (Cloud-Abschluss 2026-10-12)
 
-Siehe `docs/TESTREPORT.md` (Nachweise), `docs/AUDIT.md` (Befunde/TODO), `docs/DEVIATIONS.md`, `docs/INTERFACES.md`.
-Gates A–D, F, G, I, J (lokal), K: in isolierter Cloud-Umgebung **PASS** (automatisiert: `tests/integration/*.sh`, `tests/e2e`).
-Gate E (Paperless-GPT): Start/Verbindung PASS, LLM-Funktionstest **BLOCKED**. Gate J `--upload` (rclone crypt) **BLOCKED**.
-Gate H nur teilweise (kein LLM, keine realen Scans). Gate L (Referenzrelease) **nicht erfüllt**.
+Maßgeblich: `docs/RELEASE_GATES.md` (Gate-Status), `docs/TESTREPORT.md` (Nachweise), `docs/AUDIT.md` (Befunde/offene Punkte), `docs/DEVIATIONS.md`,
+`docs/INSTALL.md`, `docs/OPERATIONS.md`, `docs/RECOVERY.md`, `docs/SECURITY.md`, `docs/INTERFACES.md`.
+Die Gates A–K sind in isolierter Cloud-Umgebung automatisiert durchgespielt (`tests/run-all.sh`); Installation läuft über `./install.sh`.
+Offen/extern: echter LLM (G5b), echtes OneDrive (G6b), Upstream-CVE-Bereinigung (G7b), Abnahme auf ATLAS (G10). **Gate L (Produktionsrelease) ist nicht erfüllt.**
 
 ## Gate A — Preflight
 

@@ -1,54 +1,19 @@
 # OneDrive-Backup
 
-Sandbox-Muster:
-
 ```text
-ATLAS -> lokales Staging -> rclone crypt -> OneDrive
+ATLAS -> lokales Staging -> rclone crypt (Namen + Inhalte) -> OneDrive:ATLAS-Backup
 ```
+Das Backup enthält **auch Secrets** und wird deshalb nur verschlüsselt hochgeladen. Details: `docs/ONEDRIVE.md`, `docs/RECOVERY.md`.
 
-Das Backup enthält **auch Secrets** und darf deshalb nicht unverschlüsselt hochgeladen werden.
-
-## Config
-
-```text
-/etc/atlas/secrets/module03-sandbox/rclone.conf
-```
-
+## Einrichtung
 ```bash
-sudo rclone --config /etc/atlas/secrets/module03-sandbox/rclone.conf config
+sudo scripts/11-rclone-setup.sh --type onedrive --token-file token.json --drive-id <ID> --base-path ATLAS-Backup \
+     --out /etc/atlas/secrets/module03-sandbox/rclone.conf --recovery-out /root/recovery-key.txt   # Recovery-Key extern sichern!
 ```
-
-Remotes:
-
-1. `onedrive` = OneDrive.
-2. `atlascrypt` = Crypt über `onedrive:ATLAS-Backup`.
-
-Der Crypt-Recovery-Key muss extern außerhalb ATLAS/OneDrive gesichert sein.
-
-## Upload
-
+## Betrieb
 ```bash
-sudo /opt/atlas-sandbox/module03/scripts/06-backup-sandbox.sh --upload
+sudo scripts/06-backup-sandbox.sh --upload        # sichert lokal, lädt verschlüsselt hoch, verifiziert per Rück-Download (12-backup-upload.sh)
+sudo RCLONE_CONFIG=... scripts/13-cloud-restore.sh /root/m03-cloud-restore      # holt + prüft das Cloud-Backup
+sudo ./install.sh recover /root/m03-cloud-restore/current --i-understand-this-replaces-the-sandbox
 ```
-
-Logisches Layout:
-
-```text
-M03-Sandbox/
-├── current/
-├── versions/<UTC-Timestamp>/
-└── manifests/
-```
-
-## Cloud-Restore
-
-Nach Neu-Konfiguration von OneDrive + Crypt:
-
-```bash
-mkdir -p /root/m03-cloud-restore/current
-sudo RCLONE_CONFIG=/etc/atlas/secrets/module03-sandbox/rclone.conf \
-  rclone copy atlascrypt:M03-Sandbox/current /root/m03-cloud-restore/current
-sudo bash scripts/08-restore-sandbox.sh /root/m03-cloud-restore/current --i-understand-this-replaces-the-sandbox
-```
-
-Nach bestandener Sandbox wird dasselbe Muster auf ganz ATLAS erweitert, inklusive `/etc/atlas/secrets/`.
+Cloud-Layout: `M03-Sandbox/latest/` (aktuell: `current/` + `SHA256SUMS`), `versions/<UTC-Stamp>/` (ersetzte Dateien), `manifests/<Stamp>-SHA256SUMS`.
