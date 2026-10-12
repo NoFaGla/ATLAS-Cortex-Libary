@@ -4,7 +4,8 @@
 # berührt weder /srv/atlas-sandbox noch /etc/atlas noch produktive Pfade. Exit 77 = BLOCKED (kein Docker).
 # shellcheck disable=SC2015  # A && pass || fail ist hier bewusst (fail beendet das Skript)
 set -euo pipefail
-REPO=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
+# shellcheck source=tests/integration/lib-stack.sh
+source "$(dirname "${BASH_SOURCE[0]}")/lib-stack.sh"
 PORT=28000
 if ! docker info >/dev/null 2>&1; then echo "RESULT=BLOCKED (Docker-Daemon nicht erreichbar)"; exit 77; fi
 if docker volume ls -q | grep -q '^m03-ci-'; then echo "STOP: m03-ci-* Volumes existieren bereits" >&2; exit 1; fi
@@ -31,8 +32,7 @@ pass "API erreichbar"
 docker compose exec -T webserver python3 -c 'import django;print(1)' >/dev/null 2>&1 || true
 VER=$(docker compose exec -T webserver sh -c 'cat /usr/src/paperless/src/paperless/version.py 2>/dev/null | grep -o "([0-9, ]*)" | head -1' || true)
 echo "INFO: paperless version tuple: ${VER:-unbekannt}"
-if ss -ltn | awk '{print $4}' | grep -E ":$PORT$" | grep -vq '^127.0.0.1:'; then fail "Port nicht nur auf Loopback"; fi
-pass "Port nur an 127.0.0.1"
+assert_loopback_only webserver || fail "Port nicht nur auf Loopback"
 ADMIN=$(grep '^PAPERLESS_ADMIN_USER=' paperless.env | cut -d= -f2)
 TOKEN=$(python3 - "$ADMIN" "$(cat "$WORK/sec/paperless_admin_password")" <<'PY' | curl -fsS -X POST "http://127.0.0.1:$PORT/api/token/" -H 'Content-Type: application/json' --data @- | python3 -c 'import json,sys;print(json.load(sys.stdin)["token"])'
 import json,sys

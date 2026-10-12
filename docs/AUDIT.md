@@ -15,15 +15,22 @@
 | P3 | CI nur Syntax/YAML. | **behoben** (shellcheck, Compose-Config, Secret-Scan, pytest, Core-Integration) |
 | P3 | Skripte `03`/`09` überschrieben die Shell-Variable `USER`; SC2015 in `05`. | **behoben** |
 | P3 | Valkey ohne Healthcheck (`service_started`). | **behoben** |
-| offen | Paperless-GPT: Umgebungsvariablennamen (`LLM_PROVIDER`, `AUTO_TAG_COMPLETE`, `FAIL_TAG`, …) sind nur gegen das Image-Manifest, nicht gegen die Doku/Laufzeit verifiziert; Funktionstest braucht LLM-Zugang. | BLOCKED |
-| offen | `01-bootstrap.sh` kopiert bei fehlendem rsync auch `.git` nach `/opt/...`. Harmlos, aber unsauber. | offen (niedrig) |
-| offen | Dateinamensschema/Datumspräzision (`{{ created }}` liefert immer einen Tag) ist ungeklärt. | offen (braucht Paperless-Test mit Testdokumenten, Gate G/H) |
-| offen | Postgres-Image-Pull von Docker Hub lief in der Cloud-Umgebung in HTTP 429; Image wurde über `mirror.gcr.io` bezogen und lokal getaggt (gleicher Tag `postgres:18`). Digests nicht gepinnt. | offen: Digest-Pinning vor Release |
+| P1 | `core-smoke.sh` und der erste GPT-Test prüften „nur Loopback“ mit `ss`, das im Runner/Container fehlt → **falsches PASS** möglich (in dieser Phase entdeckt). | **behoben** (`assert_loopback_only` über Docker-Port-Zuordnung, Negativtest: erkennt `0.0.0.0`) |
+| P1 | Von Admin angelegte Taxonomie gehört dem Admin (`owner`) und ist für Dienstkonten unsichtbar → Hinweise würden still ignoriert. | **behoben** (D12) |
+| P1 | CI-Fehler Run #2/#3: SC2015 in `07-destroy` (neuere shellcheck-Version). | **behoben** |
+| P2 | Paperless-Auto-Datum erfindet/rät Tage (`2026-02-01` statt `28.02.2026`), Dateiname `none`-Platzhalter, `/` im Titel → Unterverzeichnis. | **behoben/entschärft** (`docs/DATUMSGENAUIGKEIT.md`) |
+| P2 | Consume-Datei muss für den Paperless-Benutzer lesbar sein (root-owned 0640 wurde nicht konsumiert). | **behoben** (`consume_owner`, im Betrieb Dienst als `HOST_UID`) |
+| P2 | Paperless-GPT-Variablennamen gegen Upstream-README v0.29.0 geprüft; `OCR_PROVIDER=llm` ohne Vision-Modell fehlerhaft. | **behoben** (D8) |
+| offen | Paperless-GPT: LLM-gestützte Anreicherung ungetestet (kein LLM-Zugang). Image-Default `OCR_PROVIDER=llm` deaktiviert OCR nur mit Warnung. | BLOCKED |
+| offen | `01-bootstrap.sh` kopiert bei fehlendem rsync auch `.git` nach `/opt/...`. | offen (niedrig) |
+| offen | Semantische Duplikate (T12 zweiter Scan) werden nicht automatisch erkannt – nur bit-identische. Bewusst: Mensch entscheidet, keine KI-Löschung/Merge. | akzeptiert |
+| offen | `rclone`-crypt-Upload/`rclone check` und OneDrive-Restore ungetestet (kein rclone/Konto). | BLOCKED |
+| offen | `library-read`/`-ingest` laufen noch nicht als Systemdienste (kein Compose-/systemd-Unit, kein Cloudflare Access). | offen |
+| offen | Postgres-Pull von Docker Hub lief in der Cloud in HTTP 429; Digest ist identisch zum `mirror.gcr.io`-Pull (verifiziert). | akzeptiert (D11) |
 
 ## Priorisierte TODO-Liste (nächste Schritte)
-1. Digests der vier Images in `VERSION_LOCK.md` ergänzen.
-2. Taxonomie (Gate F) per API-Skript anlegen und im Core-Test prüfen (Dokumenttypen, Tags, Custom Fields inkl. ATLAS-ID).
-3. Synthetische Testdokumente T01–T14 generieren (PDF mit deutschem Text, schlechter Scan, Duplikat, Fassungen) und Plan §2/§4/§5 abarbeiten.
-4. Paperless-GPT-Funktionstest mit freigegebenem Testkonto/Dummy-Endpoint.
-5. HTTP-/MCP-Schicht für `library-read` (Loopback, Token) – aktuell nur Python-API.
-6. Backup→Destroy→Restore auf separater Sandbox (braucht ausdrückliche Freigabe), rclone-crypt-Test mit Testremote.
+1. LLM-Testkonto/Dummy-Endpoint für Paperless-GPT-Funktionstest (Titel/Datum/Korrespondent/Custom Fields, Fehlerstatus statt Endlosschleife).
+2. rclone-crypt-Upload + `rclone check` + Cloud-Restore gegen Testremote (lokal `crypt` über `local`-Backend möglich → als nächster Schritt prüfen).
+3. systemd-Units/Compose-Dienste für library-read/-ingest (Loopback, eigene Benutzer), Cloudflare Access vor den UIs.
+4. Echte-Scan-Qualität (OCR) mit anonymisierten Beispielen; Jahres-Genauigkeit mit Testdokument.
+5. Hardware-/Performance-Test und Abnahme auf dem ATLAS-Server (Gate L).

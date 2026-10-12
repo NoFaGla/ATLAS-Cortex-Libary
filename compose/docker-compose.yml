@@ -82,6 +82,8 @@ services:
       PGID: ${HOST_GID:-1000}
       LLM_LANGUAGE: German
       AUTO_GENERATE_DOCUMENT_TYPE: "false"
+      CREATE_NEW_TAGS: "false"
+      LISTEN_INTERFACE: ":8080"
       MANUAL_TAG: System/Paperless-GPT-Manual
       AUTO_TAG: System/Paperless-GPT-Queue
       AUTO_TAG_COMPLETE: System/Paperless-GPT-Done

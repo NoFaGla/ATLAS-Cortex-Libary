@@ -73,18 +73,30 @@ class LibraryRead:
         return {"status": "ok", "atlas_id": res.atlas_id, "truncated": len(text) > cap, "text": text[:cap]}
 
     def get_document_file(self, ref: str) -> dict:
-        res, err = self._require_ok(ref)
-        if err:
-            return err
+        """Original-Datei. Mit SHA-gepinnter Referenz auf eine ältere, bekannte Revision wird genau diese Paperless-Version
+        geliefert (ältere Version abrufbar); ``revision`` im Ergebnis zeigt, ob es die aktuelle ist."""
+        import hashlib
+        if not self._valid(ref):
+            return {"status": "invalid_ref"}
+        res = self.registry.resolve(ref)
+        version_id, current = None, True
+        if res.status == "revision_mismatch" and res.pinned_revision_known and res.kind == "document" and self.paperless:
+            doc = self.paperless.get_document(res.backend_id)
+            match = next((v for v in doc.get("versions", []) if v.get("checksum") == res.pinned_hash), None)
+            if match is None:
+                return {"status": "revision_unavailable", "pinned_hash": res.pinned_hash}
+            version_id, current = match["id"], False
+        elif res.status != "ok":
+            return self.resolve_atlas_ref(ref)
         if res.kind != "document" or not self.paperless:
             return {"status": "unsupported"}
-        data = self.paperless.download_original(res.backend_id)
+        data = self.paperless.download_original(res.backend_id, version_id)
         if len(data) > MAX_FILE_BYTES:
             return {"status": "too_large", "size": len(data)}
-        import hashlib
-        if hashlib.sha256(data).hexdigest() != res.current_hash:
+        want = res.current_hash if current else res.pinned_hash
+        if hashlib.sha256(data).hexdigest() != want:
             return {"status": "integrity_error", "error": "Original weicht vom registrierten Hash ab"}
-        return {"status": "ok", "atlas_id": res.atlas_id, "sha256": res.current_hash,
+        return {"status": "ok", "atlas_id": res.atlas_id, "sha256": want, "is_current_revision": current,
                 "content_base64": base64.b64encode(data).decode()}
 
     def get_asset(self, ref: str) -> dict:

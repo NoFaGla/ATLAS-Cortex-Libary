@@ -127,6 +127,8 @@ class FakePaperless:
             def do_GET(self):
                 outer.requests.append(("GET", self.path))
                 assert self.headers["Authorization"] == "Token tok"
+                if self.path.split("/")[2] in ("tags", "correspondents", "document_types", "storage_paths"):
+                    return self._send({"results": []})
                 if self.path.startswith("/api/custom_fields"):
                     return self._send({"results": [{"id": 9, "name": "ATLAS-ID"}]})
                 if "/download/" in self.path:
@@ -250,11 +252,11 @@ def test_reconcile_links_and_sets_atlas_id(ing, reg, fake):
     assert reg.resolve(r["ref"]).status == "pending"
     wc = WriteClient(fake.url, "tok")
     assert ing.reconcile(TOKEN, wc)[0]["status"] == "waiting"  # Paperless hat es noch nicht
-    import hashlib as h
-    fake.docs[2] = {"id": 2, "title": "r", "content": "", "custom_fields": [], "checksum": h.md5(data).hexdigest()}
+    fake.docs[2] = {"id": 2, "title": "r", "content": "", "custom_fields": [], "tags": [], "checksum": hashlib.sha256(data).hexdigest()}
     res = ing.reconcile(TOKEN, wc)
     assert res[0]["status"] == "linked"
     assert fake.docs[2]["custom_fields"] == [{"field": 9, "value": r["atlas_id"]}]
+    assert "tag:Status/Unverarbeitet" in res[0]["unresolved"]  # Taxonomie fehlt im Fake -> nicht angelegt, nur gemeldet
     assert reg.resolve(r["ref"]).status == "ok" and reg.get(r["atlas_id"])["backend_id"] == "2"
     assert ing.reconcile(TOKEN, wc) == []  # idempotent
 

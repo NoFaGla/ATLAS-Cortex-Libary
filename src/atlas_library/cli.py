@@ -17,10 +17,17 @@ def main(argv: list[str] | None = None) -> int:
     sub = ap.add_subparsers(dest="cmd", required=True)
     s = sub.add_parser("resolve"); s.add_argument("ref")
     s = sub.add_parser("register-asset"); s.add_argument("relative_path")
+    sub.add_parser("taxonomy", help="Minimal-Taxonomie in Paperless anlegen (ATLAS_PAPERLESS_URL, ATLAS_PAPERLESS_ADMIN_TOKEN[_FILE])")
     a = ap.parse_args(argv)
     reg = Registry(a.registry)
     assets = AssetStore(a.assets, reg) if a.assets else None
-    if a.cmd == "resolve":
+    if a.cmd == "taxonomy":
+        import os
+        from .config import secret
+        from .taxonomy import AdminClient, apply_taxonomy
+        rep = apply_taxonomy(AdminClient(os.environ["ATLAS_PAPERLESS_URL"], secret("ATLAS_PAPERLESS_ADMIN_TOKEN")))
+        print(json.dumps({"created": len(rep["created"]), "existing": len(rep["existing"]), "items": rep["created"]}, ensure_ascii=False))
+    elif a.cmd == "resolve":
         print(json.dumps(LibraryRead(reg, None, assets).resolve_atlas_ref(a.ref), indent=2))
     elif a.cmd == "register-asset":
         if not assets:

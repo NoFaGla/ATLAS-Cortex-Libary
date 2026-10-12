@@ -1,28 +1,57 @@
-# Testbericht M03 (Cloud-Umgebung, 2026-10-12)
+# Testbericht M03 (Cloud-Umgebung, Stand 2026-10-12, Phase 2)
 
-Legende: PASS = ausgeführt und erfolgreich · FAIL · BLOCKED = nicht ausführbar · NOT RUN.
-Umgebung: Claude-Code-Cloud-Container, Docker 29.8.2 (dockerd manuell gestartet), Compose 5.6.0, Python 3.13. Nur synthetische Daten.
+Legende: **PASS** = ausgeführt und erfolgreich · **FAIL** · **BLOCKED** = nicht ausführbar · **NOT RUN**.
+Umgebung: Claude-Code-Cloud-Container (Docker 29.8.2, dockerd manuell gestartet), Compose 5.6.0, Python 3.13. Echte Container: Paperless-ngx 3.3.0,
+PostgreSQL 18, Valkey 9, Paperless-GPT v0.29.0 (alle per Digest gepinnt). Ausschließlich synthetische Daten. Wegwerf-Umgebung, keine produktiven Pfade.
 
-| Bereich | Test | Status | Nachweis / Anmerkung |
+## Zusammenfassung
+| Bereich | Status |
+|---|---|
+| Statische Prüfungen, Unit-Tests (37) | PASS |
+| Core-Stack real (Paperless/PG/Valkey) | PASS |
+| E2E gegen echtes Paperless (16 Tests) | PASS |
+| Backup → Destroy → Restore → Vergleich | PASS (lokal, ohne Cloud-Upload) |
+| Paperless-GPT Start/Verbindung/Loopback | PASS |
+| Paperless-GPT LLM-Funktionstest | **BLOCKED** (kein LLM-Zugang) |
+| rclone-crypt-Upload / OneDrive-Restore | **BLOCKED** |
+| Server-/Hardware-/Cloudflare-Access-Tests | **BLOCKED** (nur auf ATLAS) |
+| Gate L / Produktionsreife | **NICHT erreicht** |
+
+## Details
+| Bereich | Test | Status | Nachweis |
 |---|---|---|---|
-| Archiv | ZIP-Integrität, keine unsicheren Pfade, Extraktion identisch (`diff -r`) | PASS | `unzip -t`, Pfadprüfung |
-| Statik | `bash -n` + shellcheck (alle Skripte) | PASS | clean |
-| Statik | `docker compose --profile ai config` (Dummy-Secrets), Ports nur 127.0.0.1, keine `latest`-Tags | PASS | pytest `test_repo_static` |
-| Statik | Secret-/Private-File-Scan der getrackten Dateien | PASS | pytest |
-| Version | Manifest `paperless-ngx:3.3.0`, `paperless-gpt:v0.29.0` auf ghcr.io vorhanden | PASS | Registry-API (`0.29.0` ohne v: 404) |
-| Unit | UUIDv7, Referenzparser, Registry (ok/revision_mismatch/trashed/deleted/unknown, Tombstone, Revisionen) | PASS | 31 pytest-Tests gesamt |
-| Unit | Asset Store (exakte Datei, Hash-Integrität, Traversal/Symlink-Abwehr) | PASS | pytest |
-| Unit | library-read (nur GET, Hash-Prüfung des Originals, keine Mutations-API) | PASS | gegen lokalen **Fake**-Paperless-Server, nicht gegen echtes Paperless |
-| Unit | library-ingest (Auth, Typ/Größe, Dateinamen, Duplikat ohne Löschung, Hinweis-Priorität, Reconcile/ATLAS-ID-Feld) | PASS | Fake-Paperless |
-| Integration | Core-Stack real: API, PostgreSQL healthy, Valkey, Port nur Loopback, Adminlogin, Upload+OCR/Index, Original bit-identisch, Neustart ohne Datenverlust, `document_sanity_checker` | PASS | `tests/integration/core-smoke.sh` (Paperless 3.3.0 bestätigt) |
-| Skripte | `00-preflight` (rclone/rsync nur INFO), `01-bootstrap` (Rechte 0700/0600), `02-up-core`, `03-create-api-token`, `04-status` | PASS | real ausgeführt in Wegwerf-Container |
-| Backup | `06-backup-sandbox.sh` lokal: Export, pg_dump (767 TOC-Einträge, `pg_restore -l`), Volumes, Secrets, SHA256SUMS verifiziert | PASS | ohne `--upload` |
-| Backup | `--upload` (rclone crypt), `rclone check` | BLOCKED | kein rclone, kein OneDrive/Zugangsdaten |
-| Restore | `07-destroy` / `08-restore` / `09-post-restore-check` | NOT RUN | destruktiv, keine ausdrückliche Freigabe |
-| GPT | Paperless-GPT Image pullbar | PASS | Pull erfolgreich |
-| GPT | Paperless-GPT Start, API-Verbindung, Titel/Datum/Korrespondent/Custom Fields | BLOCKED | kein LLM-Zugang / Testkonto |
-| Plan | Taxonomie, Dateinamen, Duplikate/Versionen in Paperless, OCR-Qualität (T01–T14) | NOT RUN | Testdokumente fehlen noch |
-| Plan | Cloudflare Access, Hardware-/Performance-Test, OneDrive-Restore | BLOCKED | nur auf echtem ATLAS-Server |
-| Release | Reproduzierbares ZIP (`10-build-release.sh`), zweimal gebaut → identische SHA-256 | PASS | Manifest + `.sha256`; **kein Deployment**, Gate L nicht erfüllt |
+| Statik | `bash -n`, shellcheck (scripts + tests/integration) | PASS | clean (lokal v0.11, CI-Runner neuer; SC2015 behoben) |
+| Statik | Compose-Config, Ports nur 127.0.0.1, keine `latest`, **Digest-Pins**, nur Sandbox-Pfade, Skript-Rechte, Bestätigungsschalter, Secret-Scan | PASS | `tests/unit/test_repo_static.py` |
+| Unit | UUIDv7, Referenzparser, Registry (Status, Tombstone, Revisionen), Asset Store (Traversal/Symlink/Integrität) | PASS | `tests/unit/test_core.py` |
+| Unit | HTTP-read (Auth, nur GET, Statuscodes), HTTP-ingest (Auth, Limits, Duplikat), MCP (Protokoll, nur lesende Tools), Bind-Guard | PASS | `tests/unit/test_interfaces.py` (Fake-Paperless) |
+| Core | API, PG healthy, Valkey, **Loopback über Docker-Port-Zuordnung**, Login, Upload+OCR, Original bit-identisch, Neustart, `document_sanity_checker` | PASS | `core-smoke.sh` |
+| E2E | Taxonomie idempotent (35 Objekte, 2. Lauf 0), keine Auto-Matching (`matching_algorithm=0`) | PASS | `tests/e2e` |
+| E2E | ATLAS-ID in jedem Dokument, Registry-Mapping, Tag `Status/Unverarbeitet` | PASS | |
+| E2E | OCR deutsch: Umlaute/ß korrekt, 6-seitiges Bild-PDF, schlechter Scan lesbar (128 Zeichen, „Quittung“ erkannt), 2. Scan (PNG) | PASS | Beobachtung `ocr_bad_scan_text` |
+| E2E | Originale bit-identisch (SHA-256) nach Import | PASS | |
+| E2E | Datumsgenauigkeit + Dateinamen (Tag/Monat, `ohne Typ`, Sonderzeichen, `/` im Titel, Sortierbarkeit) | PASS | `docs/DATUMSGENAUIGKEIT.md` |
+| E2E | Keine Überschreibung bei Namenskollision (zwei Dokumente, identische Metadaten → eigene Dateien) | PASS | |
+| E2E | Paperless-Auto-Datum ohne Hinweis | PASS (dokumentiert) | Paperless wählte `2026-02-01` statt `28.02.2026` → ATLAS überschreibt per Hinweis |
+| E2E | Duplikate: bit-identisch → `duplicate`, nichts geschrieben/gelöscht; direkt konsumiertes Duplikat von Paperless markiert, beide bleiben; 2. Scan = eigene ID | PASS | |
+| E2E | Versionen: technische Fassung = gleiche ID/Revision 2; fachlich geänderte = neue ID; **ältere Revision per gepinnter Referenz abrufbar** | PASS | |
+| E2E | Unbekannte Taxonomie wird nicht angelegt, Dokument → `Status/Prüfen` | PASS | |
+| E2E | Papierkorb → `trashed`, endgültig → Tombstone `deleted`, ID bleibt belegt | PASS | |
+| E2E | **Least Privilege**: Dienstkonto `library-read` kann lesen, PATCH/DELETE/POST → 403 | PASS | |
+| E2E | library-read HTTP gegen echtes Paperless (Metadaten, Text, Datei hash-geprüft, Suche mehrdeutig, Assets SVG/PNG/Vorlage) | PASS | |
+| E2E | library-read MCP (stdio-Subprozess) gegen echtes Paperless | PASS | |
+| E2E | library-ingest HTTP gegen echtes Paperless inkl. Reconcile/ATLAS-ID/Dateiname | PASS | |
+| Skripte | 00 Preflight, 01 Bootstrap (Rechte 0700/0600), 02 Core, 03 Token, 06 Backup (+SHA256SUMS, Secrets enthalten), 07 Destroy, 08 Restore, 09 Post-Restore-Check | PASS | `restore-e2e.sh` (Guards: keine fremden Container/Volumes, Marker, kein `/srv/cortex`) |
+| Restore | Zustand vor/nach identisch: 8 Dokumente (Titel, Datum, Korrespondent, Typ, Tags, Felder, Dateiname, SHA-256, Versionen, Content-Hash), 11 Registry-Einträge, 12 Revisionen, 3 Assets; 8 gepinnte Referenzen lösen auf | PASS | |
+| GPT | Image per Digest pullbar, Start ohne Crash-Loop, UI nur 127.0.0.1, Paperless-Verbindung, System-Tags vorhanden | PASS | `gpt-smoke.sh` |
+| GPT | LLM-Anreicherung (Titel/Datum/Korrespondent/Custom Fields, Fehlerstatus) | BLOCKED | kein LLM-Zugang; keine Schlüssel im Repo |
+| Backup | `--upload`, `rclone crypt`, `rclone check`, Cloud-Restore | BLOCKED | kein rclone/OneDrive; Crypt-Pflicht-Guard im Skript, aber ungetestet |
+| Plan | Testplan §3 (GPT-Qualität), §9 Cloudflare Access, echte Scans, Hardware/Performance | BLOCKED / NOT RUN | |
+| Release | Reproduzierbares Release-**Kandidaten**-ZIP (zweimal gebaut, identische SHA-256) | PASS | `scripts/10-build-release.sh`; Manifest: `status=RELEASE-CANDIDATE` |
 
-Cloud-grün ≠ produktionsreif (CLOUD_WORKFLOW.md). Muss-Kriterien „verschlüsseltes Vollbackup“ und „kompletter Restore PASS“ sind NICHT erfüllt.
+## Korrektur früherer Aussage
+Der Loopback-Test in `core-smoke.sh` (Phase 1) nutzte `ss`, das im Testumfeld fehlte, und hätte nie fehlschlagen können. Die statische
+Prüfung (Compose-Config) war korrekt; der dynamische Test wurde ersetzt und mit einem Negativtest (`0.0.0.0` wird erkannt) abgesichert.
+
+## Release-Reife
+**Nicht produktionsreif.** Offen für Gate L: LLM-Funktionstest, verschlüsselter Offsite-Upload + Cloud-Restore, Dienst-Verpackung (systemd/Compose)
+für library-read/-ingest, Cloudflare Access, Hardware-/Performance-Abnahme auf ATLAS, Review der Abweichungen durch den Benutzer.

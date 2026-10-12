@@ -1,5 +1,7 @@
 # Test- und Abnahmeplan
 
+> Ausführungsstand der Cloud-Läufe: `docs/TESTREPORT.md`. Die Checkboxen unten bleiben für die Abnahme auf dem ATLAS-Server offen.
+
 Bewertung: PASS / PASS MIT DOKUMENTIERTER ABWEICHUNG / FAIL / BLOCKER.
 
 ## 1. Core

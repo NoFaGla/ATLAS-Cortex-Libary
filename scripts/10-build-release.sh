@@ -16,7 +16,7 @@ zip_path, epoch, version, commit = sys.argv[1], int(sys.argv[2]), sys.argv[3], s
 files = sorted(subprocess.run(["git", "ls-files", "-z"], capture_output=True, check=True).stdout.decode().split("\0"))
 files = [f for f in files if f and not f.startswith("dist/")]
 dt = time.gmtime(max(epoch, 315532800))[:6]
-manifest = [f"version={version}", f"commit={commit}"]
+manifest = [f"version={version}", f"commit={commit}", "status=RELEASE-CANDIDATE (Gate L nicht erfuellt; nicht produktionsreif; kein Deployment)"]
 with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED, compresslevel=9) as z:
     for f in files:
         data = open(f, "rb").read()

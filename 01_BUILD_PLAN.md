@@ -1,5 +1,12 @@
 # Buildplan M03-CORTEX-LIBRARY-SANDBOX
 
+## Status (Cloud-Stand 2026-10-12)
+
+Siehe `docs/TESTREPORT.md` (Nachweise), `docs/AUDIT.md` (Befunde/TODO), `docs/DEVIATIONS.md`, `docs/INTERFACES.md`.
+Gates A–D, F, G, I, J (lokal), K: in isolierter Cloud-Umgebung **PASS** (automatisiert: `tests/integration/*.sh`, `tests/e2e`).
+Gate E (Paperless-GPT): Start/Verbindung PASS, LLM-Funktionstest **BLOCKED**. Gate J `--upload` (rclone crypt) **BLOCKED**.
+Gate H nur teilweise (kein LLM, keine realen Scans). Gate L (Referenzrelease) **nicht erfüllt**.
+
 ## Gate A — Preflight
 
 ```bash
@@ -53,7 +60,7 @@ Dann:
 sudo /opt/atlas-sandbox/module03/scripts/05-up-ai.sh
 ```
 
-Wenn das gepinnte 0.29.0-Image nicht pullbar ist: STOP. Nicht auf `latest` wechseln. Version bewusst prüfen und dokumentieren.
+Wenn das gepinnte v0.29.0-Image (Digest siehe `VERSION_LOCK.md`) nicht pullbar ist: STOP. Nicht auf `latest` wechseln. Version bewusst prüfen und dokumentieren.
 
 ## Gate F — Minimal-Taxonomie
 
@@ -95,14 +102,22 @@ Siehe `tests/TESTPLAN.md`.
 
 ## Gate I — ATLAS-Erweiterungen
 
-Erst nach Core-Abnahme implementieren:
+Implementiert (Python-Paket `atlas_library`, Sandbox-Referenz; Details `docs/INTERFACES.md`):
 
 - Registry
 - `library-read`
 - `library-ingest`
 - Asset Resolver
 
-Spezifikation unter `services/`.
+Spezifikation unter `services/`. Die Dienste (`atlas-library-read-http`, `atlas-library-read-mcp`, `atlas-library-ingest-http`) sind noch
+nicht als systemd-/Compose-Dienste verpackt (siehe TODO in `docs/AUDIT.md`).
+
+Taxonomie anlegen (Gate F), nach `03-create-api-token.sh` mit Admin-Token:
+
+```bash
+ATLAS_PAPERLESS_URL=http://127.0.0.1:18000 ATLAS_PAPERLESS_ADMIN_TOKEN_FILE=<datei> \
+  python3 -m atlas_library.cli --registry /var/lib/atlas-sandbox/module03/registry/registry.sqlite3 taxonomy
+```
 
 ## Gate J — Backup
 

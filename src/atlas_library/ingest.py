@@ -11,6 +11,7 @@ import hmac
 import json
 import os
 import re
+import time
 from pathlib import Path
 
 from .paperless import PaperlessError, WriteClient
@@ -19,7 +20,8 @@ from .registry import Registry
 ALLOWED_EXT = {".pdf", ".png", ".jpg", ".jpeg", ".tif", ".tiff", ".txt"}
 DEFAULT_MAX_BYTES = 50 * 1024 * 1024
 SOURCE_PRIORITY = {"user": 0, "extracted": 1, "llm": 2}
-ALLOWED_HINT_FIELDS = {"title", "created", "correspondent", "document_type", "tags", "notes"}
+ALLOWED_HINT_FIELDS = {"title", "created", "date_precision", "correspondent", "document_type", "tags", "notes"}
+DATE_PRECISIONS = {"Tag", "Monat", "Jahr"}
 
 
 class IngestError(Exception):
@@ -32,6 +34,12 @@ def sanitize_filename(name: str) -> str:
     if not base or base.startswith("."):
         raise IngestError("ungültiger Dateiname")
     return base[:150]
+
+
+def safe_title(title: str) -> str:
+    """Paperless nutzt den Titel im Dateinamen; '/' würde dort ein Unterverzeichnis erzeugen."""
+    t = re.sub(r"[\x00-\x1f\x7f]", " ", str(title)).replace("/", "-").replace("\\", "-")
+    return re.sub(r"\s+", " ", t).strip()[:200]
 
 
 def merge_hints(hints: list[dict]) -> dict:
@@ -51,7 +59,7 @@ def merge_hints(hints: list[dict]) -> dict:
 
 class LibraryIngest:
     def __init__(self, registry: Registry, consume_dir: str | Path, state_dir: str | Path, token: str,
-                 max_bytes: int = DEFAULT_MAX_BYTES):
+                 max_bytes: int = DEFAULT_MAX_BYTES, consume_owner: tuple[int, int] | None = None):
         if len(token) < 24:
             raise ValueError("Ingest-Token zu kurz (mind. 24 Zeichen)")
         self.registry = registry
@@ -59,6 +67,7 @@ class LibraryIngest:
         self.state = Path(state_dir)
         self._token = token.encode()
         self.max_bytes = max_bytes
+        self.consume_owner = consume_owner  # (uid, gid), falls der Dienst nicht als Paperless-Benutzer läuft
         (self.state / "hints").mkdir(parents=True, exist_ok=True)
 
     def _auth(self, token: str) -> None:
@@ -73,6 +82,12 @@ class LibraryIngest:
         if not data or len(data) > self.max_bytes:
             raise IngestError("Datei leer oder zu groß")
         merged = merge_hints(hints or [])
+        if merged.get("title"):
+            merged["title"] = safe_title(merged["title"])
+        if merged.get("date_precision") not in (None, *DATE_PRECISIONS):
+            raise IngestError("date_precision muss Tag, Monat oder Jahr sein")
+        if merged.get("created") is not None and not re.fullmatch(r"\d{4}-\d{2}-\d{2}", str(merged["created"])):
+            raise IngestError("created muss YYYY-MM-DD sein (bei Monats-/Jahresangaben den ersten Tag + date_precision)")
         sha = hashlib.sha256(data).hexdigest()
         existing = self.registry.find_by_hash(sha)
         if existing:
@@ -86,12 +101,14 @@ class LibraryIngest:
         fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o640)
         with os.fdopen(fd, "wb") as f:
             f.write(data)
+        if self.consume_owner:
+            os.chown(tmp, *self.consume_owner)
         if target.exists():  # Überschreiben ausgeschlossen
             tmp.unlink()
             raise IngestError("Zieldatei existiert bereits")
         os.replace(tmp, target)
         (self.state / "hints" / f"{atlas_id}.json").write_text(json.dumps(
-            {"hints": merged, "md5": hashlib.md5(data, usedforsecurity=False).hexdigest(), "file": target.name}))
+            {"hints": merged, "sha256": sha, "file": target.name}))
         return {"status": "queued", "atlas_id": atlas_id, "ref": self.registry.pin(atlas_id), "consume_file": target.name}
 
     def reconcile(self, token: str, paperless: WriteClient) -> list[dict]:
@@ -103,16 +120,64 @@ class LibraryIngest:
             e = self.registry.get(atlas_id)
             if e is None or e["status"] != "pending":
                 continue
-            md5 = json.loads(f.read_text())["md5"]
+            info = json.loads(f.read_text())
+            sha = info["sha256"]
             try:
-                found = paperless.find_by_checksum(md5)
+                found = paperless.find_by_checksum(sha)
                 if len(found) != 1:
                     results.append({"atlas_id": atlas_id, "status": "waiting" if not found else "ambiguous"})
                     continue
                 doc = found[0]
                 paperless.set_atlas_id(doc["id"], atlas_id)
                 self.registry.link_backend(atlas_id, str(doc["id"]), doc.get("title"))
-                results.append({"atlas_id": atlas_id, "status": "linked", "paperless_id": doc["id"]})
+                applied = paperless.apply_hints(doc["id"], info.get("hints", {}), ["Status/Unverarbeitet"])
+                if applied["unresolved"]:
+                    paperless.apply_hints(doc["id"], {}, ["Status/Prüfen"])
+                results.append({"atlas_id": atlas_id, "status": "linked", "paperless_id": doc["id"],
+                                "unresolved": applied["unresolved"]})
             except PaperlessError as exc:
                 results.append({"atlas_id": atlas_id, "status": "error", "error": str(exc)})
         return results
+
+    def ingest_revision(self, token: str, atlas_id: str, paperless: WriteClient, filename: str, data: bytes,
+                        label: str | None = None) -> dict:
+        """Neue *technische* Fassung desselben Dokuments: gleiche ATLAS-ID, neue Revision (Paperless-Version).
+
+        Das alte Original bleibt als Paperless-Version erhalten. Fachlich neue Dokumente gehen über ingest_document.
+        """
+        self._auth(token)
+        name = sanitize_filename(filename)
+        if Path(name).suffix.lower() not in ALLOWED_EXT or not data or len(data) > self.max_bytes:
+            raise IngestError("Datei ungültig")
+        e = self.registry.get(atlas_id)
+        if e is None or e["kind"] != "document" or e["status"] != "active":
+            raise IngestError("ATLAS-ID unbekannt oder nicht aktiv")
+        sha = hashlib.sha256(data).hexdigest()
+        if sha == e["current_hash"]:
+            return {"status": "unchanged", "atlas_id": atlas_id}
+        if sha in {h for _, h in self.registry.revisions(atlas_id)}:
+            raise IngestError("Diese Fassung existiert bereits als ältere Revision")
+        paperless.upload_version(e["backend_id"], name, data, label)
+        # erst übernehmen, wenn Paperless die Version tatsächlich führt (asynchrone Verarbeitung)
+        for _ in range(60):
+            doc = paperless.get_document(e["backend_id"])
+            if any(v.get("checksum") == sha for v in doc.get("versions", [])):
+                rev = self.registry.add_revision(atlas_id, sha)
+                return {"status": "revision_added", "atlas_id": atlas_id, "revision": rev, "ref": self.registry.pin(atlas_id)}
+            time.sleep(1)
+        return {"status": "pending", "atlas_id": atlas_id, "note": "Version noch nicht in Paperless sichtbar"}
+
+    def sync_lifecycle(self, token: str, paperless: WriteClient) -> list[dict]:
+        """Spiegelt Paperless-Status (aktiv/Papierkorb/endgültig gelöscht -> Tombstone) in die Registry. Löscht nie selbst."""
+        self._auth(token)
+        out = []
+        with self.registry._conn() as c:
+            rows = c.execute("SELECT atlas_id, backend_id, status FROM entries WHERE kind='document' AND backend_id IS NOT NULL "
+                             "AND status IN ('active','trashed')").fetchall()
+        for r in rows:
+            st = paperless.document_exists(r["backend_id"])
+            new = {"active": "active", "trashed": "trashed", "gone": "deleted"}[st]
+            if new != r["status"]:
+                self.registry.set_status(r["atlas_id"], new)
+                out.append({"atlas_id": r["atlas_id"], "from": r["status"], "to": new})
+        return out
