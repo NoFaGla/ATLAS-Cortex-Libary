@@ -157,7 +157,7 @@ def test_invented_values_are_contained(w):
     assert s["type"] is None
     assert s["created"] and len(s["created"]) == 10 and s["created"][4] == "-"  # gültiges Datum, kein 'not-a-date'
     assert len(s["title"]) <= 128
-    assert ("Status/Verarbeitet" in s["tags"]) != ("Status/Prüfen" in s["tags"])  # genau ein Endstatus
+    assert "Status/Prüfen" in s["tags"] and "Status/Verarbeitet" not in s["tags"]  # ausufernder Titel (128 Zeichen) -> menschliche Prüfung
     assert hashlib.sha256(w["wc"].download_original(s["id"])).hexdigest() == sha
 
 
@@ -171,6 +171,8 @@ def test_llm_failure_modes_end_in_failed_not_in_a_loop(w, mode):
     assert settle(w, [a], 420), f"{mode}: kein Endzustand (Endlosschleife?)"
     s = state(w, a)
     OBS[f"mode_{mode}"] = {"tags": sorted(s["tags"]), "title_changed": s["title"] != before_title, "requests": mock_stats()["requests"]}
+    if mode in ("empty", "truncated"):  # GPT meldet Done, liefert aber nichts/Unbrauchbares -> Qualitätsschranke greift
+        assert "Status/Prüfen" in s["tags"] and "Status/Verarbeitet" not in s["tags"]
     if mode in ("http500", "http429", "invalid_json"):
         assert FAILED in s["tags"] and "Status/Prüfen" in s["tags"] and QUEUE not in s["tags"]
         assert s["title"] == before_title  # Dokument unverändert

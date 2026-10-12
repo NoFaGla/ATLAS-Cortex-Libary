@@ -1,0 +1,17 @@
+# cloudflared (Cloudflare Tunnel) für ATLAS M03 — VORLAGE ohne Zugangsdaten.
+# Platzhalter <...> ersetzen; Tunnel-Credentials-Datei liegt außerhalb dieses Repos (0600).
+# Zugriff schützt Cloudflare Access (siehe access-applications.json.template): MFA/Passkey vor JEDER Oberfläche.
+# Der Ursprung bleibt Loopback: Dienste lauschen nur auf 127.0.0.1 (compose/docker-compose.yml, ATLAS_*_HOST).
+tunnel: <TUNNEL-UUID>
+credentials-file: /etc/cloudflared/<TUNNEL-UUID>.json
+no-autoupdate: true
+ingress:
+  - hostname: <paperless.example.com>
+    service: http://127.0.0.1:18000
+  - hostname: <paperless-gpt.example.com>
+    service: http://127.0.0.1:18080
+  # optional: library-read für entfernte Clients (nur mit Service-Token-Policy, siehe access-applications)
+  - hostname: <library-read.example.com>
+    service: http://127.0.0.1:18090
+  # Alles andere: 404 (kein Catch-all auf interne Dienste)
+  - service: http_status:404

@@ -86,7 +86,7 @@ def make_handler(ing: LibraryIngest, token: str, paperless: WriteClient, max_byt
 def worker(ing: LibraryIngest, token: str, paperless: WriteClient, interval: float, stop: threading.Event, queue_gpt: bool = False) -> None:
     while not stop.wait(interval):
         try:
-            ing.reconcile(token, paperless, queue_gpt)
+            ing.reconcile(token, paperless, queue_gpt, float(os.environ.get("ATLAS_PENDING_STALE_S", "900")))
             ing.finalize(token, paperless)
             ing.sync_lifecycle(token, paperless)
         except Exception:  # Worker darf nie sterben; Fehler erscheinen im nächsten Lauf erneut

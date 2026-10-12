@@ -1,0 +1,57 @@
+# library-read (HTTP, nur lesend). Installation durch install.sh --with-services. @...@ wird ersetzt.
+[Unit]
+Description=ATLAS M03 library-read (read-only HTTP)
+After=network.target docker.service
+Wants=docker.service
+
+[Service]
+Type=simple
+User=@SERVICE_USER@
+Group=@SERVICE_GROUP@
+WorkingDirectory=@OPT@
+Environment=PYTHONPATH=@OPT@/src PYTHONDONTWRITEBYTECODE=1
+Environment=ATLAS_REGISTRY=@VAR@/registry/registry.sqlite3
+Environment=ATLAS_ASSETS=@SRV@/assets
+Environment=ATLAS_PAPERLESS_URL=http://127.0.0.1:18000
+Environment=ATLAS_READ_HOST=127.0.0.1
+Environment=ATLAS_READ_PORT=18090
+LoadCredential=read-token:@SEC@/library-read-token
+LoadCredential=paperless-read-token:@SEC@/library-read-paperless-token
+Environment=ATLAS_READ_TOKEN_FILE=%d/read-token
+Environment=ATLAS_PAPERLESS_READ_TOKEN_FILE=%d/paperless-read-token
+ExecStart=/usr/bin/python3 -m atlas_library.http_read
+Restart=on-failure
+RestartSec=5
+# Härtung (read-only Dienst: nur Loopback, kein Schreibzugriff)
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+ProtectProc=invisible
+ProcSubset=pid
+RestrictAddressFamilies=AF_INET AF_INET6
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged @resources
+CapabilityBoundingSet=
+AmbientCapabilities=
+UMask=0077
+IPAddressDeny=any
+IPAddressAllow=localhost
+ReadOnlyPaths=@VAR@/registry @SRV@/assets
+InaccessiblePaths=-@SEC@
+
+[Install]
+WantedBy=multi-user.target

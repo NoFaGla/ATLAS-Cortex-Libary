@@ -332,6 +332,24 @@ def test_no_overwrite_on_name_collision(world):
     OBS["name_collision_files"] = names
 
 
+def test_edge_year_precision_unicode_name_and_corrupt_file(world):
+    """Grenzfälle: Jahresgenauigkeit im Dateinamen, Unicode-/Sonderzeichen-Dateiname, nicht verarbeitbare Datei (stale, nie gelöscht)."""
+    reg, ing, wc, admin = world["reg"], world["ing"], world["wc"], world["admin"]
+    jahr = ing.ingest_document(ING_TOKEN, "Ärger mit ß & Co (final) #1.txt", "Jahresbericht synthetisch 2024 eindeutig 8812\n".encode(), [
+        {"field": "title", "value": "Jahresbericht 2024", "source": "user"}, {"field": "created", "value": "2024-01-01", "source": "user"},
+        {"field": "date_precision", "value": "Jahr", "source": "user"}, {"field": "correspondent", "value": "Beispiel Wohnbau GmbH", "source": "user"},
+        {"field": "document_type", "value": "Sonstiges Dokument", "source": "user"}])
+    kaputt = ing.ingest_document(ING_TOKEN, "kaputt.pdf", b"%PDF-1.4 this is definitely not a valid pdf \x00\x01\x02 4711")
+    assert wait(lambda: ing.reconcile(ING_TOKEN, wc) is not None and reg.get(jahr["atlas_id"])["status"] == "active", 180)
+    name = admin.get_metadata(reg.get(jahr["atlas_id"])["backend_id"])["media_filename"]
+    assert name.startswith("2024 - Beispiel Wohnbau GmbH - Sonstiges Dokument - Jahresbericht 2024"), name  # nur Jahr, kein erfundener Monat/Tag
+    time.sleep(20)
+    res = {r["atlas_id"]: r["status"] for r in ing.reconcile(ING_TOKEN, wc, stale_after_s=5)}
+    assert res.get(kaputt["atlas_id"]) == "stale", res
+    assert reg.get(kaputt["atlas_id"])["status"] == "pending"  # weder gelöscht noch aktiviert
+    OBS["edge_year_filename"] = name
+
+
 def test_trash_and_tombstone_lifecycle(world):
     reg, ing, wc, admin = world["reg"], world["ing"], world["wc"], world["admin"]
     aid = world["ids"]["T08"]["atlas_id"]

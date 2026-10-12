@@ -265,3 +265,76 @@ def test_write_client_never_overwrites_foreign_atlas_id(fake):
     fake.docs[1]["custom_fields"] = [{"field": 9, "value": "other"}]
     with pytest.raises(PaperlessError):
         WriteClient(fake.url, "tok").set_atlas_id(1, "mine")
+
+
+# ---- Schema-Versionierung / Upgrade -------------------------------------------------------------------------------
+def test_registry_schema_version_and_legacy_migration(tmp_path):
+    import sqlite3
+    from atlas_library.registry import CURRENT_SCHEMA, SCHEMA, SchemaError
+    db = tmp_path / "legacy.sqlite3"
+    c = sqlite3.connect(db); c.executescript(SCHEMA)  # Altbestand ohne user_version (v0)
+    c.execute("INSERT INTO entries VALUES (?,?,?,?,?,?,?,?,?,?)", ("018f0000-0000-7000-8000-000000000001", "document", "paperless", "1", None, "active", "2026-01-01", H1, None, "alt"))
+    c.execute("INSERT INTO revisions VALUES (?,?,?,?)", ("018f0000-0000-7000-8000-000000000001", 1, H1, "2026-01-01")); c.commit(); c.close()
+    reg = Registry(db)
+    assert reg.schema_version() == CURRENT_SCHEMA and reg.get("018f0000-0000-7000-8000-000000000001")["last_title"] == "alt"
+    assert reg.integrity_check() == []
+    Registry(db)  # idempotent
+    c = sqlite3.connect(db); c.execute(f"PRAGMA user_version={CURRENT_SCHEMA + 1}"); c.commit(); c.close()
+    with pytest.raises(SchemaError):
+        Registry(db)  # Downgrade verweigert
+
+
+def test_registry_integrity_check_detects_inconsistency(tmp_path):
+    reg = Registry(tmp_path / "r.sqlite3")
+    aid = reg.create(kind="document", backend="paperless", backend_id="1", sha256=H1)
+    assert reg.integrity_check() == []
+    with reg._conn() as c:
+        c.execute("UPDATE entries SET current_hash=? WHERE atlas_id=?", (H2, aid))
+    assert any("current_hash" in p for p in reg.integrity_check())
+
+
+def test_plausible_title_heuristic():
+    from atlas_library.ingest import plausible_title
+    assert plausible_title("Verdienstabrechnung Januar 2026") and plausible_title("Mietvertrag")
+    assert not plausible_title("") and not plausible_title(None) and not plausible_title("Ver") and not plausible_title("x" * 121)
+
+
+def test_concurrent_identical_ingest_creates_exactly_one_entry(tmp_path):
+    import threading
+    reg = Registry(tmp_path / "r.sqlite3")
+    ing = LibraryIngest(reg, tmp_path / "consume", tmp_path / "state", TOKEN, max_bytes=1000)
+    results = []
+    def go():
+        results.append(ing.ingest_document(TOKEN, "a.pdf", b"%PDF same bytes"))
+    ts = [threading.Thread(target=go) for _ in range(12)]
+    [t.start() for t in ts]; [t.join() for t in ts]
+    assert sorted(r["status"] for r in results).count("queued") == 1 and sorted(r["status"] for r in results).count("duplicate") == 11
+    assert len({r["atlas_id"] for r in results}) == 1
+    assert len(list((tmp_path / "consume").iterdir())) == 1
+
+
+def test_stale_pending_is_reported_not_deleted(tmp_path, fake):
+    reg = Registry(tmp_path / "r.sqlite3")
+    ing = LibraryIngest(reg, tmp_path / "consume", tmp_path / "state", TOKEN)
+    out = ing.ingest_document(TOKEN, "kaputt.pdf", b"not really a pdf")
+    wc = WriteClient(fake.url, "tok")
+    assert ing.reconcile(TOKEN, wc, stale_after_s=3600)[0]["status"] == "waiting"
+    import time; time.sleep(1.1)
+    assert ing.reconcile(TOKEN, wc, stale_after_s=1)[0]["status"] == "stale"
+    assert reg.get(out["atlas_id"])["status"] == "pending" and any((tmp_path / "consume").iterdir())  # nichts gelöscht
+
+
+@pytest.mark.parametrize("bad", ["atlas-library://" + "A" * 36, "atlas-library://018f0000-0000-7000-8000-000000000001' OR 1=1--",
+                                 "atlas-library://018f0000-0000-7000-8000-000000000001@sha256:" + "g" * 64, " \n", "atlas-library://../../etc/passwd",
+                                 "atlas-library://018f0000-0000-7000-8000-000000000001@sha256:" + "a" * 63, "ATLAS-LIBRARY://x", "\x00"])
+def test_ref_fuzz_rejected(bad):
+    with pytest.raises(InvalidRef):
+        parse_ref(bad)
+
+
+def test_title_hint_sanitized_and_filename_edge_cases():
+    from atlas_library.ingest import safe_title
+    assert safe_title("A/B\\C\n\tD") == "A-B-C D" and len(safe_title("x" * 500)) == 200
+    assert sanitize_filename("Ärger mit ß & Co (final) #1.txt") == "Ärger mit ß & Co (final) #1.txt"
+    assert sanitize_filename("evil\r\nname\x00.pdf") == "evil__name_.pdf"
+    assert len(sanitize_filename("a" * 400 + ".pdf")) == 150 and sanitize_filename("a" * 400 + ".pdf").endswith(".pdf")

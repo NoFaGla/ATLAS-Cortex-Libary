@@ -7,6 +7,7 @@ Priorität der Hinweise: explizite Nutzerangabe > deterministisch extrahiert > L
 from __future__ import annotations
 
 import hashlib
+from datetime import datetime, timezone
 import hmac
 import json
 import os
@@ -33,7 +34,8 @@ def sanitize_filename(name: str) -> str:
     base = re.sub(r"[\x00-\x1f\x7f/\\:*?\"<>|]", "_", base).strip(" .")
     if not base or base.startswith("."):
         raise IngestError("ungültiger Dateiname")
-    return base[:150]
+    ext = Path(base).suffix[:10]
+    return base if len(base) <= 150 else base[: 150 - len(ext)] + ext   # Endung bleibt erhalten
 
 
 def safe_title(title: str) -> str:
@@ -55,6 +57,16 @@ def merge_hints(hints: list[dict]) -> dict:
         if field not in best or prio < best[field][0]:
             best[field] = (prio, h.get("value"))
     return {k: v for k, (_, v) in best.items()}
+
+
+def _fingerprint(paperless: WriteClient, doc: dict) -> dict:
+    tags = sorted(t for t in paperless.tag_names(doc) if not t.startswith(("System/", "Status/")))
+    return {"title": doc.get("title"), "created": doc.get("created"), "correspondent": doc.get("correspondent"), "tags": tags}
+
+
+def plausible_title(title: str | None) -> bool:
+    """Heuristik gegen leere/abgeschnittene/ausufernde LLM-Titel (Paperless-GPT meldet solche Fälle als erfolgreich)."""
+    return bool(title) and 5 <= len(title.strip()) <= 120
 
 
 def user_fields(hints: list[dict]) -> list[str]:
@@ -99,12 +111,10 @@ class LibraryIngest:
         if merged.get("created") is not None and not re.fullmatch(r"\d{4}-\d{2}-\d{2}", str(merged["created"])):
             raise IngestError("created muss YYYY-MM-DD sein (bei Monats-/Jahresangaben den ersten Tag + date_precision)")
         sha = hashlib.sha256(data).hexdigest()
-        existing = self.registry.find_by_hash(sha)
-        if existing:
-            return {"status": "duplicate", "atlas_id": existing[0], "action": "none",
+        atlas_id, created = self.registry.create_document_unique(sha256=sha, title=merged.get("title") or name)
+        if not created:
+            return {"status": "duplicate", "atlas_id": atlas_id, "action": "none",
                     "note": "bit-identisches Duplikat; nichts abgelegt, nichts gelöscht"}
-        atlas_id = self.registry.create(kind="document", backend="paperless", sha256=sha, status="pending",
-                                        title=merged.get("title") or name)
         target = self.consume / f"{Path(name).stem} [{atlas_id[:8]}]{Path(name).suffix.lower()}"
         tmp = self.consume / f".{atlas_id}.part"
         self.consume.mkdir(parents=True, exist_ok=True)
@@ -121,7 +131,7 @@ class LibraryIngest:
             {"hints": merged, "user_fields": user_fields(hints or []), "sha256": sha, "file": target.name, "finalized": False}))
         return {"status": "queued", "atlas_id": atlas_id, "ref": self.registry.pin(atlas_id), "consume_file": target.name}
 
-    def reconcile(self, token: str, paperless: WriteClient, queue_for_gpt: bool = False) -> list[dict]:
+    def reconcile(self, token: str, paperless: WriteClient, queue_for_gpt: bool = False, stale_after_s: float | None = None) -> list[dict]:
         """Ordnet pending-Einträge nach Paperless-MD5 den Paperless-Dokumenten zu und schreibt das ATLAS-ID-Feld."""
         self._auth(token)
         results = []
@@ -135,7 +145,12 @@ class LibraryIngest:
             try:
                 found = paperless.find_by_checksum(sha)
                 if len(found) != 1:
-                    results.append({"atlas_id": atlas_id, "status": "waiting" if not found else "ambiguous"})
+                    st = "waiting" if not found else "ambiguous"
+                    if st == "waiting" and stale_after_s is not None:
+                        age = (datetime.now(timezone.utc) - datetime.fromisoformat(e["created_at"])).total_seconds()
+                        if age > stale_after_s:
+                            st = "stale"  # z. B. beschädigte/nicht verarbeitbare Datei: wird gemeldet, NIE automatisch gelöscht
+                    results.append({"atlas_id": atlas_id, "status": st})
                     continue
                 doc = found[0]
                 paperless.set_atlas_id(doc["id"], atlas_id)
@@ -145,6 +160,8 @@ class LibraryIngest:
                 applied = paperless.apply_hints(doc["id"], info.get("hints", {}), extra)
                 if applied["unresolved"]:
                     paperless.apply_hints(doc["id"], {}, ["Status/Prüfen"])
+                info["pre"] = _fingerprint(paperless, paperless.get_document(doc["id"]))   # Ausgangszustand vor Paperless-GPT
+                f.write_text(json.dumps(info))
                 results.append({"atlas_id": atlas_id, "status": "linked", "paperless_id": doc["id"],
                                 "unresolved": applied["unresolved"]})
             except PaperlessError as exc:
@@ -210,6 +227,15 @@ class LibraryIngest:
                 paperless.apply_hints(doc["id"], {}, ["Status/Prüfen"], ["Status/Unverarbeitet", "System/Paperless-GPT-Queue"])
                 outcome = "needs_review"
             elif "System/Paperless-GPT-Done" in names:
+                now = _fingerprint(paperless, doc)
+                pre = info.get("pre")
+                if (pre is not None and now == pre) or not plausible_title(doc.get("title")):
+                    # GPT meldet Done, hat aber nichts geändert oder einen unbrauchbaren Titel geliefert -> menschliche Prüfung
+                    paperless.apply_hints(doc["id"], {}, ["Status/Prüfen"], ["Status/Unverarbeitet"])
+                    info["finalized"] = True
+                    f.write_text(json.dumps(info))
+                    out.append({"atlas_id": f.stem, "status": "needs_review", "reason": "gpt_no_change_or_implausible"})
+                    continue
                 mine = {k: v for k, v in info.get("hints", {}).items() if k in info.get("user_fields", []) and k in ("title", "created", "date_precision", "tags")}
                 paperless.apply_hints(doc["id"], mine, ["Status/Verarbeitet"], ["Status/Unverarbeitet"])
                 outcome = "processed"

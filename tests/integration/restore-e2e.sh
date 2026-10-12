@@ -42,12 +42,21 @@ final_cleanup(){
 trap final_cleanup EXIT
 
 step(){ say "== $*"; }
-step "00 preflight"; bash "$REPO/scripts/00-preflight.sh" >"$WORK/pre.log" 2>&1 || { cat "$WORK/pre.log"; blocked "Preflight (z. B. Platz/Ports)"; }
-step "01 bootstrap"; bash "$REPO/scripts/01-bootstrap.sh" | tail -1
-step "02 core"; bash "$OPT/scripts/02-up-core.sh" | grep -E "CORE=" 
-step "03 token"; bash "$OPT/scripts/03-create-api-token.sh"
+step "install.sh preflight / install (00,01,02,03, Taxonomie)"
+bash "$REPO/install.sh" preflight > "$WORK/pre.log" 2>&1 || { cat "$WORK/pre.log"; blocked "Preflight (z. B. Platz/Ports)"; }
+grep -E "PASS|INFO" "$WORK/pre.log" | head -5
+bash "$REPO/install.sh" install > "$WORK/install.log" 2>&1 || { tail -30 "$WORK/install.log"; fail "install.sh install"; }
+grep -E "CORE=|TOKEN=|TAXONOMY=|INSTALL=" "$WORK/install.log"
+if bash "$REPO/install.sh" install >/dev/null 2>&1; then fail "zweiter install überschrieb eine bestehende Installation"; fi
+say "PASS: install verweigert Überschreiben einer bestehenden Installation"
+step "install.sh validate (Isolation, Ports, Secrets, Registry, Taxonomie)"
+bash "$REPO/install.sh" validate > "$WORK/validate1.log" 2>&1 || { cat "$WORK/validate1.log"; fail "validate nach install"; }
+grep -E "VALIDATE=|FAIL" "$WORK/validate1.log"
 ENVF="$SEC/paperless-gpt.env"
 mkdir -p "$VAR/registry"
+step "upgrade ohne Backup muss verweigert werden"
+if bash "$OPT/install.sh" upgrade > "$WORK/up0.log" 2>&1; then fail "upgrade ohne Backup wurde ausgeführt"; fi
+grep -q "kein Backup vorhanden" "$WORK/up0.log" && say "PASS: upgrade ohne Backup verweigert (nichts verändert)"
 step "seed synthetic data"
 python3 "$REPO/tests/integration/sandbox_state.py" seed --root "$REPO" --env-file "$ENVF"
 python3 "$REPO/tests/integration/sandbox_state.py" snapshot --root "$REPO" --env-file "$ENVF" --out "$WORK/before.json"
@@ -64,6 +73,19 @@ if grep -qF "$SECRET_VALUE" "$WORK/backup.log"; then fail "Secret im Backup-Log"
 say "PASS: Secrets weder in Cloud-Dateinamen/-Inhalten noch im Log"
 LATEST=$(readlink -f "$SRV/backup-staging/latest")
 (cd "$LATEST" && sha256sum --quiet -c SHA256SUMS) && say "PASS: Backup-Prüfsummen"
+step "service-accounts + echte library-read/-ingest-Dienste mit den installierten Least-Privilege-Konten"
+bash "$REPO/install.sh" service-accounts | tail -1
+for f in library-read-token library-ingest-token library-read-paperless-token library-ingest-paperless-token; do [ "$(stat -c %a "$SEC/$f")" = 600 ] || fail "$f nicht 0600"; done
+python3 "$REPO/tests/integration/services_check.py" --root "$REPO" --sec "$SEC" --state-before "$WORK/before.json"
+step "upgrade: zu altes Backup wird verweigert, frisches akzeptiert"
+touch -d '72 hours ago' "$LATEST/SHA256SUMS"
+if bash "$OPT/install.sh" upgrade > "$WORK/up1.log" 2>&1; then fail "upgrade mit 72h altem Backup wurde ausgeführt"; fi
+grep -q "alt" "$WORK/up1.log" && say "PASS: upgrade mit veraltetem Backup verweigert"
+touch "$LATEST/SHA256SUMS"
+bash "$OPT/install.sh" upgrade > "$WORK/up2.log" 2>&1 || { tail -30 "$WORK/up2.log"; fail "upgrade"; }
+grep -E "UPGRADE=|VALIDATE=" "$WORK/up2.log"
+python3 "$REPO/tests/integration/sandbox_state.py" snapshot --root "$REPO" --env-file "$ENVF" --out "$WORK/after-upgrade.json"
+cmp -s "$WORK/before.json" "$WORK/after-upgrade.json" && say "PASS: Daten nach upgrade unverändert (Dokumente, Hashes, Registry, Assets)" || fail "Daten nach upgrade verändert"
 grep -q "paperless_secret_key" <(cd "$LATEST/current/etc" && ls -R) && say "PASS: Secrets im Backup enthalten"
 step "pre-destroy guard (erneut)"
 if docker ps -a --format '{{.Names}}' | grep -v '^m03-sandbox-' | grep -q .; then fail "fremde Container aufgetaucht"; fi
@@ -76,9 +98,11 @@ step "Cloud-Restore: Konfiguration aus Recovery-Key, lokale Recovery-Kopie wird 
 rm -rf /root/m03-sandbox-last-backup
 bash "$REPO/scripts/11-rclone-setup.sh" --type local --base-path "$WORK/cloud/ATLAS-Backup" --out "$WORK/rclone-recover.conf" --recovery-in "$WORK/recovery-key.txt" >/dev/null
 RCLONE_CONFIG="$WORK/rclone-recover.conf" bash "$REPO/scripts/13-cloud-restore.sh" "$WORK/cloud-restore"
-step "08 restore (inkl. 09) aus dem Cloud-Backup"
-bash "$WORK/cloud-restore/current/opt/module03/scripts/08-restore-sandbox.sh" "$WORK/cloud-restore/current" --i-understand-this-replaces-the-sandbox > "$WORK/restore.log" 2>&1 || { tail -30 "$WORK/restore.log"; fail "Restore"; }
-tail -12 "$WORK/restore.log"
+step "install.sh recover (08 + 09 + validate) aus dem Cloud-Backup"
+bash "$REPO/install.sh" recover "$WORK/cloud-restore/current" --i-understand-this-replaces-the-sandbox > "$WORK/restore.log" 2>&1 || { tail -40 "$WORK/restore.log"; fail "recover"; }
+grep -E "POST_RESTORE_CHECK=|VALIDATE=|FAIL" "$WORK/restore.log"
+if bash "$REPO/install.sh" recover "$WORK/cloud-restore/current" > /dev/null 2>&1; then fail "recover ohne Bestätigungsschalter wurde ausgeführt"; fi
+say "PASS: recover ohne Bestätigungsschalter verweigert"
 step "snapshot nach Restore + Vergleich"
 python3 "$REPO/tests/integration/sandbox_state.py" snapshot --root "$REPO" --env-file "$ENVF" --out "$WORK/after.json"
 if cmp -s "$WORK/before.json" "$WORK/after.json"; then say "PASS: Dokumente/Hashes/Metadaten/Registry/Assets identisch"; else diff "$WORK/before.json" "$WORK/after.json" | head -30; fail "Zustand nach Restore weicht ab"; fi

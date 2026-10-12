@@ -51,6 +51,13 @@ CREATE TABLE IF NOT EXISTS revisions (
 """
 
 
+CURRENT_SCHEMA = 1  # PRAGMA user_version; Migrationen laufen nur vorwärts, Downgrade wird verweigert
+
+
+class SchemaError(Exception):
+    pass
+
+
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
@@ -74,7 +81,35 @@ class Registry:
     def __init__(self, path: str | Path):
         self.path = str(path)
         with self._conn() as c:
-            c.executescript(SCHEMA)
+            version = c.execute("PRAGMA user_version").fetchone()[0]
+            if version > CURRENT_SCHEMA:
+                raise SchemaError(f"Registry-Schema v{version} ist neuer als diese Software (v{CURRENT_SCHEMA}); kein Downgrade")
+            c.executescript(SCHEMA)  # idempotent (IF NOT EXISTS); v0 = unversionierter Altbestand mit identischem Schema
+            if version < CURRENT_SCHEMA:
+                self._migrate(c, version)
+
+    @staticmethod
+    def _migrate(c: sqlite3.Connection, from_version: int) -> None:
+        """Vorwärtsmigrationen. v0 -> v1: unversionierter Bestand erhält nur die Versionsmarke (Schema identisch)."""
+        # Künftige Migrationen hier als `if from_version < N:` ergänzen; nie Daten löschen (IDs sind unwiederverwendbar).
+        c.execute(f"PRAGMA user_version={CURRENT_SCHEMA}")
+
+    def schema_version(self) -> int:
+        with self._conn() as c:
+            return c.execute("PRAGMA user_version").fetchone()[0]
+
+    def integrity_check(self) -> list[str]:
+        """Strukturprüfung: SQLite-Integrität, jede Entität hat ≥1 Revision, aktuelle Revision == current_hash."""
+        problems = []
+        with self._conn() as c:
+            if c.execute("PRAGMA integrity_check").fetchone()[0] != "ok":
+                problems.append("sqlite integrity_check")
+            for r in c.execute("SELECT e.atlas_id FROM entries e LEFT JOIN revisions r ON r.atlas_id=e.atlas_id WHERE r.atlas_id IS NULL"):
+                problems.append(f"{r[0]}: keine Revision")
+            for r in c.execute("""SELECT e.atlas_id FROM entries e WHERE e.current_hash !=
+                                  (SELECT sha256 FROM revisions WHERE atlas_id=e.atlas_id ORDER BY revision DESC LIMIT 1)"""):
+                problems.append(f"{r[0]}: current_hash passt nicht zur letzten Revision")
+        return problems
 
     @contextmanager
     def _conn(self):
@@ -106,6 +141,33 @@ class Registry:
                       (atlas_id, kind, backend, backend_id, relative_path, status, now, sha256, mime_type, title))
             c.execute("INSERT INTO revisions VALUES (?,?,?,?)", (atlas_id, 1, sha256, now))
         return atlas_id
+
+    def create_document_unique(self, *, sha256: str, status: str = "pending", title: str | None = None) -> tuple[str, bool]:
+        """Atomar (BEGIN IMMEDIATE, prozessübergreifend serialisiert): legt ein Dokument nur an, wenn kein Eintrag mit diesem
+        Hash (Revision) existiert. Gibt (atlas_id, created) zurück; bei Duplikat die bestehende ID und created=False."""
+        if not _SHA.match(sha256):
+            raise ValueError("sha256 muss 64 Hex-Zeichen (klein) sein")
+        c = sqlite3.connect(self.path, isolation_level=None, timeout=30)
+        try:
+            c.execute("BEGIN IMMEDIATE")
+            row = c.execute("SELECT atlas_id FROM revisions WHERE sha256=? ORDER BY atlas_id LIMIT 1", (sha256,)).fetchone()
+            if row:
+                c.execute("ROLLBACK")
+                return row[0], False
+            atlas_id, now = str(uuid7()), _now()
+            c.execute("INSERT INTO entries VALUES (?,?,?,?,?,?,?,?,?,?)",
+                      (atlas_id, "document", "paperless", None, None, status, now, sha256, None, title))
+            c.execute("INSERT INTO revisions VALUES (?,?,?,?)", (atlas_id, 1, sha256, now))
+            c.execute("COMMIT")
+            return atlas_id, True
+        except Exception:
+            try:
+                c.execute("ROLLBACK")
+            except sqlite3.Error:
+                pass
+            raise
+        finally:
+            c.close()
 
     def get(self, atlas_id: str) -> sqlite3.Row | None:
         with self._conn() as c:
