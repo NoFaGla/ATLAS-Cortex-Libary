@@ -48,7 +48,9 @@ def main() -> None:
         manifest = write_all(tmp)
         for name in sorted({m["correspondent"] for m in manifest.values() if m.get("correspondent")}):
             admin.post("/api/correspondents/", {"name": name, "matching_algorithm": 0})
-        ing = LibraryIngest(reg, SRV / "consume", VAR / "registry" / "state", "s" * 40, consume_owner=(1000, 1000))
+        # Besitzer des Consume-Ordners = Paperless-Benutzer (Bootstrap setzt HOST_UID aus SUDO_USER; auf CI-Runnern 1001)
+        st = (SRV / "consume").stat()
+        ing = LibraryIngest(reg, SRV / "consume", VAR / "registry" / "state", "s" * 40, consume_owner=(st.st_uid, st.st_gid))
         wc = WriteClient(URL, tok)
         queued = []
         for tid in ["T01", "T02", "T03", "T04", "T05", "T06", "T07", "T11", "T14"]:
