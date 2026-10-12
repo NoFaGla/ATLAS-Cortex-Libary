@@ -1,11 +1,18 @@
-# Testbericht M03 — Cloud-Abschluss (2026-10-12)
+# Testbericht M03 — Cloud-Abschluss (2026-10-12), Stand nach D20 + G7b
 
 Statuswerte: **PASS** tatsächlich ausgeführt und bestanden · **FAIL** ausgeführt, fehlgeschlagen · **BLOCKED** externe Abhängigkeit fehlt · **NOT RUN** nicht ausgeführt.
 Umgebung: Claude-Code-Cloud-Container (Docker 29.8.2, Compose 5.6.0, Python 3.13, rclone 1.75.2) **und** GitHub-Actions-Runner (ubuntu-24.04). Echte Container:
-Paperless-ngx 3.3.0, PostgreSQL 18, Valkey 9, Paperless-GPT v0.29.0 (alle per Digest gepinnt). Ausschließlich synthetische Daten; destruktive Tests nur in Wegwerf-Umgebungen mit Guards.
+Paperless-ngx 3.3.0, PostgreSQL 18, Valkey 9, Paperless-GPT **v0.30.0** (alle per Digest gepinnt; Update von v0.29.0 siehe D22). Ausschließlich synthetische Daten; destruktive Tests nur in Wegwerf-Umgebungen mit Guards.
 Reproduktion: `sudo M03_ISOLATED_TEST_ENV=1 bash tests/run-all.sh` (Logs in `$LOGDIR`).
 
-## Gesamtergebnis (letzter vollständiger Lauf auf Commit `2c4cc21`, lokal + CI)
+## Nachtrag D20 + G7b (Commit `20a5fbc`)
+Änderungen: `AUTO_GENERATE_CORRESPONDENTS=false` (D20), paperless-gpt `v0.29.0` → `v0.30.0` (D22), Sicherheitsscan neu bewertet (`SECURITY_SCAN.md`).
+Vollständiger lokaler Lauf (`tests/run-all.sh`, Logs `/tmp/claude-0/logs`) auf dem Endstand: shellcheck, unit (62), bandit, rclone-crypt (22), core-smoke (9), e2e, gpt-smoke (7), **gpt-mock (12, inkl. D20-Prüfung: Korrespondentenmenge nach jedem Szenario unverändert; T02 behält keinen erfundenen Korrespondenten)** = PASS;
+`restore-e2e` = PASS (beim Sammellauf zunächst BLOCKED: der Guard „fremde Docker-Volumes“ erkannte ein von mir angelegtes Trivy-Cache-Volume – Volume entfernt, Test einzeln wiederholt, PASS); `gpt-real-llm` = BLOCKED (kein Zugang, erwartet).
+Zusätzlich: der GPT-Mock-Lauf wurde vorab mit v0.30.0 per Image-Override ausgeführt (12 passed, 808 s) bevor der Digest übernommen wurde. CI siehe PR #1 (Commit `20a5fbc` bzw. Folgecommit).
+Ergebnisse Scan (Trivy 0.58.0, eindeutige CVE-IDs): paperless-ngx 3.3.0 → 3 HIGH · paperless-gpt v0.30.0 → 2 HIGH (vorher 8) · valkey 0 · postgres 18.6 → 1 CRITICAL + 24 HIGH (alle in `gosu`).
+
+## Gesamtergebnis (Lauf auf Commit `2c4cc21`, lokal + CI, vor D20/G7b)
 | Suite | Lokal | CI (PR #1) | Umfang |
 |---|---|---|---|
 | shellcheck (install.sh, scripts, tests) | PASS | PASS | alle Skripte |
@@ -80,7 +87,7 @@ library-ingest HTTP (Auth, Größen-/Typlimit, Hinweisvalidierung, Duplikat, Rev
 | systemd-Units: Härtungsdirektiven, `systemd-analyze verify`, Exposure 1.5 | PASS (statisch; **kein Echtstart**) |
 | Cloudflare Tunnel/Access: automatische Konfigurationsprüfung (nur Loopback-Ursprung, 404-Catch-all, Passkey/MFA, kein Bypass, Service-Token nur benannt) | PASS (Konfiguration); **Live-Durchsetzung BLOCKED/extern** |
 | bandit 0, pip-audit 0 | PASS |
-| Trivy auf gepinnten Upstream-Images | ausgeführt: HIGH-Funde (paperless 9, gpt 10, postgres 24 + 1 CRITICAL in gosu) → `SECURITY_SCAN.md`, **Bereinigung offen** |
+| Trivy auf gepinnten Upstream-Images | ausgeführt; fixbare Funde behoben (gpt 8→2), Rest ohne Upstream-Fix mit Risiko/Maßnahmen dokumentiert → `SECURITY_SCAN.md` (G7b: PASS mit Restrisiko) |
 
 ## 6. Installation, Neustart, Upgrade, Recovery (`restore-e2e.sh`, Sandbox im Container-Host)
 preflight · install (verweigert Überschreiben) · validate · Neustart (Core-Smoke: Daten erhalten; GPT-Neustart) · upgrade (verweigert ohne Backup / mit 72 h altem Backup / aus installierter Kopie; mit frischem Backup erfolgreich, Daten unverändert) ·
