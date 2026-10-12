@@ -50,7 +50,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Core smoke test (Paperless 3.3.0 + PostgreSQL 18 + Valkey 9)
-        run: bash tests/integration/core-smoke.sh
+        run: sudo -E env "PATH=$PATH" bash tests/integration/core-smoke.sh
   e2e:
     runs-on: ubuntu-24.04
     needs: static
@@ -62,9 +62,9 @@ jobs:
           python-version: "3.12"
       - run: python -m pip install pytest pyyaml pillow -e .
       - name: E2E gegen echtes Paperless (Taxonomie, T01-T14, library-read/-ingest HTTP+MCP)
-        run: bash tests/integration/run-e2e.sh
+        run: sudo -E env "PATH=$PATH" bash tests/integration/run-e2e.sh
       - name: Paperless-GPT Start-/Verbindungstest (ohne LLM; Funktionstest BLOCKED)
-        run: bash tests/integration/gpt-smoke.sh
+        run: sudo -E env "PATH=$PATH" bash tests/integration/gpt-smoke.sh
   restore-e2e:
     runs-on: ubuntu-24.04
     needs: static
