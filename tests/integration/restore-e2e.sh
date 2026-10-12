@@ -18,6 +18,7 @@ fail(){ say "FAIL: $*"; exit 1; }
 
 [ "${M03_ISOLATED_TEST_ENV:-}" = 1 ] || blocked "M03_ISOLATED_TEST_ENV=1 fehlt"
 [ "${EUID}" -eq 0 ] || blocked "root erforderlich"
+command -v rclone >/dev/null || blocked "rclone fehlt (für den verschlüsselten Cloud-Pfad)"
 docker info >/dev/null 2>&1 || blocked "Docker-Daemon nicht erreichbar"
 [ ! -e /srv/cortex ] || blocked "/srv/cortex existiert – das ist keine isolierte Testumgebung"
 if docker ps -a --format '{{.Names}}' | grep -v '^m03-sandbox-' | grep -q .; then blocked "fremde Container vorhanden"; fi
@@ -50,7 +51,17 @@ mkdir -p "$VAR/registry"
 step "seed synthetic data"
 python3 "$REPO/tests/integration/sandbox_state.py" seed --root "$REPO" --env-file "$ENVF"
 python3 "$REPO/tests/integration/sandbox_state.py" snapshot --root "$REPO" --env-file "$ENVF" --out "$WORK/before.json"
-step "06 backup"; bash "$OPT/scripts/06-backup-sandbox.sh" | tail -2
+step "rclone crypt (lokales Test-Remote außerhalb der Sandbox-Pfade)"
+mkdir -p "$WORK/cloud"
+bash "$OPT/scripts/11-rclone-setup.sh" --type local --base-path "$WORK/cloud/ATLAS-Backup" --out "$SEC/rclone.conf" --recovery-out "$WORK/recovery-key.txt"
+step "06 backup --upload"; bash "$OPT/scripts/06-backup-sandbox.sh" --upload > "$WORK/backup.log" 2>&1 || { cat "$WORK/backup.log"; fail "Backup/Upload"; }
+tail -3 "$WORK/backup.log"
+grep -q "UPLOAD=PASS" "$WORK/backup.log" && say "PASS: verschlüsselter Upload + Verifikation"
+if grep -rqa "paperless_secret_key" "$WORK/cloud"; then fail "Klartext-Dateiname in der Cloud"; fi
+SECRET_VALUE=$(cat "$SEC/paperless_secret_key")
+if grep -rqaF "$SECRET_VALUE" "$WORK/cloud"; then fail "Secret im Klartext in der Cloud"; fi
+if grep -qF "$SECRET_VALUE" "$WORK/backup.log"; then fail "Secret im Backup-Log"; fi
+say "PASS: Secrets weder in Cloud-Dateinamen/-Inhalten noch im Log"
 LATEST=$(readlink -f "$SRV/backup-staging/latest")
 (cd "$LATEST" && sha256sum --quiet -c SHA256SUMS) && say "PASS: Backup-Prüfsummen"
 grep -q "paperless_secret_key" <(cd "$LATEST/current/etc" && ls -R) && say "PASS: Secrets im Backup enthalten"
@@ -61,9 +72,13 @@ bash "$OPT/scripts/07-destroy-sandbox.sh" --i-understand-this-deletes-the-sandbo
 for p in "$OPT" "$SRV" "$VAR" "$SEC"; do [ ! -e "$p" ] || fail "$p nach Destroy noch vorhanden"; done
 if docker volume ls -q | grep -q '^m03-sandbox-'; then fail "Volumes nach Destroy noch vorhanden"; fi
 say "PASS: Sandbox vollständig zerstört (Pfade, Volumes, Secrets)"
-step "08 restore (inkl. 09)"
-SAFE=/root/m03-sandbox-last-backup
-bash "$SAFE/current/opt/module03/scripts/08-restore-sandbox.sh" "$SAFE/current" --i-understand-this-replaces-the-sandbox | tail -12
+step "Cloud-Restore: Konfiguration aus Recovery-Key, lokale Recovery-Kopie wird bewusst entfernt"
+rm -rf /root/m03-sandbox-last-backup
+bash "$REPO/scripts/11-rclone-setup.sh" --type local --base-path "$WORK/cloud/ATLAS-Backup" --out "$WORK/rclone-recover.conf" --recovery-in "$WORK/recovery-key.txt" >/dev/null
+RCLONE_CONFIG="$WORK/rclone-recover.conf" bash "$REPO/scripts/13-cloud-restore.sh" "$WORK/cloud-restore"
+step "08 restore (inkl. 09) aus dem Cloud-Backup"
+bash "$WORK/cloud-restore/current/opt/module03/scripts/08-restore-sandbox.sh" "$WORK/cloud-restore/current" --i-understand-this-replaces-the-sandbox > "$WORK/restore.log" 2>&1 || { tail -30 "$WORK/restore.log"; fail "Restore"; }
+tail -12 "$WORK/restore.log"
 step "snapshot nach Restore + Vergleich"
 python3 "$REPO/tests/integration/sandbox_state.py" snapshot --root "$REPO" --env-file "$ENVF" --out "$WORK/after.json"
 if cmp -s "$WORK/before.json" "$WORK/after.json"; then say "PASS: Dokumente/Hashes/Metadaten/Registry/Assets identisch"; else diff "$WORK/before.json" "$WORK/after.json" | head -30; fail "Zustand nach Restore weicht ab"; fi

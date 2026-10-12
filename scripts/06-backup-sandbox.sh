@@ -31,18 +31,12 @@ done
   docker compose --profile ai config --images
 } > "$CURRENT/manifest/versions.txt"
 docker compose --profile ai config > "$CURRENT/manifest/compose.resolved.yml"
-find "$CURRENT" -type f -print0 | sort -z | xargs -0 sha256sum > "$BASE/SHA256SUMS"
+# relative Pfade: Prüfsummen bleiben nach Cloud-Download/Restore an anderem Ort gültig
+(cd "$BASE" && find current -type f -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS)
 ln -sfn "$BASE" "$SRV/backup-staging/latest"
 echo "LOCAL_BACKUP=$BASE"
 if [ "$UPLOAD" -eq 1 ]; then
-  CONF="$SEC/rclone.conf"; [ -s "$CONF" ] || { echo "STOP: $CONF fehlt" >&2; exit 1; }
-  export RCLONE_CONFIG="$CONF"; TARGET="atlascrypt:M03-Sandbox"
-  # Backup enthält Secrets: Upload nur, wenn atlascrypt tatsächlich ein crypt-Remote ist.
-  rclone config dump | python3 -c 'import json,sys; d=json.load(sys.stdin).get("atlascrypt",{}); sys.exit(0 if d.get("type")=="crypt" else 1)' \
-    || { echo "STOP: Remote atlascrypt fehlt oder ist kein crypt-Remote; unverschlüsselter Upload verweigert" >&2; exit 1; }
-  rclone sync "$CURRENT/" "$TARGET/current" --backup-dir "$TARGET/versions/$STAMP" --create-empty-src-dirs --checkers 4 --transfers 2 --checksum
-  rclone copyto "$BASE/SHA256SUMS" "$TARGET/manifests/$STAMP-SHA256SUMS"
-  rclone check "$CURRENT/" "$TARGET/current" --one-way --checksum
-  echo "UPLOAD=PASS"
+  CONF="$SEC/rclone.conf"; [ -s "$CONF" ] || { echo "STOP: $CONF fehlt (scripts/11-rclone-setup.sh)" >&2; exit 1; }
+  RCLONE_CONFIG="$CONF" bash "$OPT/scripts/12-backup-upload.sh" "$BASE"
 fi
 echo "BACKUP=PASS"
