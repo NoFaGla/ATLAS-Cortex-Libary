@@ -1,0 +1,26 @@
+[project]
+name = "atlas-library"
+version = "0.2.0"
+description = "ATLAS Modul 03 Cortex-Library: Registry, library-read, library-ingest (Sandbox-Referenz)"
+requires-python = ">=3.11"
+dependencies = []
+
+[project.optional-dependencies]
+test = ["pytest", "pyyaml", "pillow"]
+
+[project.scripts]
+atlas-library = "atlas_library.cli:main"
+atlas-library-read-http = "atlas_library.http_read:main"
+atlas-library-read-mcp = "atlas_library.mcp_read:main"
+atlas-library-ingest-http = "atlas_library.http_ingest:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]

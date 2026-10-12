@@ -1,0 +1,152 @@
+name: M03 static checks
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  static:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install test dependencies
+        run: python -m pip install pytest pyyaml pillow bandit pip-audit -e .
+      - name: Shell syntax and shellcheck
+        run: |
+          set -euo pipefail
+          find scripts tests install.sh -type f -name '*.sh' -print0 | xargs -0 -r -n1 bash -n
+          find scripts tests install.sh -type f -name '*.sh' -print0 | xargs -0 -r shellcheck -x -S style
+      - name: Validate workflow YAML and Compose (dummy secrets, no real values)
+        run: |
+          set -euo pipefail
+          T=$(mktemp -d); mkdir "$T/sec"
+          for f in postgres_password paperless_secret_key paperless_admin_password; do echo dummy > "$T/sec/$f"; done
+          cp compose/paperless-gpt.env.example "$T/sec/paperless-gpt.env"
+          cp compose/paperless.env.example "$T/paperless.env"; cp compose/.env.example "$T/.env"
+          sed "s#/etc/atlas/secrets/module03-sandbox#$T/sec#g" compose/docker-compose.yml > "$T/docker-compose.yml"
+          (cd "$T" && docker compose --profile ai config -q && docker compose --profile ai config --images)
+          python - <<'PYCODE'
+          from pathlib import Path
+          import yaml
+          for path in list(Path('.github/workflows').glob('*.yml')) + list(Path('compose').glob('*.yml')):
+              yaml.safe_load(path.read_text()); print('YAML OK:', path)
+          PYCODE
+      - name: Secret scan (tracked files + full git history) — needs full history
+        run: git fetch --unshallow || true; python -m pytest -q tests/unit/test_repo_static.py
+      - name: Security scan (bandit; medium+ fails) and dependency audit
+        run: |
+          bandit -q -r src -ll
+          printf 'pytest\npyyaml\npillow\n' > /tmp/req.txt
+          pip-audit -r /tmp/req.txt
+      - name: Unit tests (registry, library-read/-ingest, interfaces, deploy/config checks)
+        run: python -m pytest -q tests/unit
+  rclone-crypt:
+    runs-on: ubuntu-24.04
+    needs: static
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo bash tests/integration/install-rclone.sh
+      - name: rclone crypt (lokales Remote; Namen/Inhalt, Restore, falsches Passwort, Korruption, Abbruch)
+        run: bash tests/integration/rclone-crypt.sh
+  # Echte Container-Tests auf dem (isolierten, flüchtigen) Runner. Keine Secrets nötig: Wegwerf-Secrets im Temp-Verzeichnis,
+  # ausschließlich synthetische Daten, Bindung nur an 127.0.0.1. Die Skripte brauchen root (chown der Bind-Mounts).
+  core-integration:
+    runs-on: ubuntu-24.04
+    needs: static
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Core smoke test (Paperless 3.3.0 + PostgreSQL 18 + Valkey 9)
+        run: sudo -E env "PATH=$PATH" bash tests/integration/core-smoke.sh
+  e2e:
+    runs-on: ubuntu-24.04
+    needs: static
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install pytest pyyaml pillow -e .
+      - name: E2E gegen echtes Paperless (Taxonomie, T01-T14, Grenzfälle, library-read/-ingest HTTP+MCP)
+        run: sudo -E env "PATH=$PATH" bash tests/integration/run-e2e.sh
+      - name: Paperless-GPT Start-/Verbindungstest (ohne LLM)
+        run: sudo -E env "PATH=$PATH" bash tests/integration/gpt-smoke.sh
+  gpt-mock:
+    runs-on: ubuntu-24.04
+    needs: static
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install pytest pyyaml pillow -e .
+      - name: Paperless-GPT gegen Mock-LLM (Metadaten, Nutzer-Vorrang, ungültige Antworten, HTTP-Fehler, Timeout, unerreichbar)
+        run: sudo -E env "PATH=$PATH" bash tests/integration/run-gpt-mock.sh
+  restore-e2e:
+    runs-on: ubuntu-24.04
+    needs: static
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install pillow -e .
+      - run: sudo bash tests/integration/install-rclone.sh
+      - name: Installer, Backup (rclone crypt), Upgrade, Destroy, Cloud-Restore (nur im flüchtigen Runner; Guards im Skript)
+        run: sudo -E env "PATH=$PATH" M03_ISOLATED_TEST_ENV=1 bash tests/integration/restore-e2e.sh
+  gpt-real-llm-gate:
+    runs-on: ubuntu-24.04
+    needs: static
+    steps:
+      - uses: actions/checkout@v4
+      - name: Echter LLM-Test muss ohne Freigabe BLOCKED (Exit 77) sein — es gibt keine API-Schlüssel in CI
+        run: |
+          set +e; bash tests/integration/gpt-real-llm.sh; rc=$?
+          [ "$rc" -eq 77 ] && echo "BLOCKED wie erwartet" || { echo "unerwarteter Exit $rc"; exit 1; }
+  image-scan:
+    # Informativ (Upstream-Images, nicht von uns gebaut): Ergebnis wird protokolliert, blockiert aber nicht.
+    runs-on: ubuntu-24.04
+    needs: static
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - name: Trivy (HIGH/CRITICAL) über die gepinnten Images
+        run: |
+          for img in $(grep -hoE 'image: \S+' compose/docker-compose.yml | sed 's/image: //; s/\${PAPERLESS_GPT_IMAGE:-//; s/}$//'); do
+            echo "== $img"; docker run --rm -v /var/run/docker.sock:/var/run/docker.sock ghcr.io/aquasecurity/trivy:0.58.0 image --quiet --severity HIGH,CRITICAL --ignore-unfixed "$img" || true
+          done
+  release:
+    runs-on: ubuntu-24.04
+    needs: [static, rclone-crypt, core-integration, e2e, gpt-mock, restore-e2e, gpt-real-llm-gate]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Reproduzierbarer Release-Kandidat (zweimal bauen, gleiche SHA-256) + Installer-Preflight aus dem entpackten ZIP + Manipulationstest
+        run: |
+          set -euo pipefail
+          bash scripts/10-build-release.sh /tmp/rel1 | tee /tmp/sum1
+          bash scripts/10-build-release.sh /tmp/rel2 | tee /tmp/sum2
+          cmp /tmp/sum1 /tmp/sum2 && echo "REPRODUZIERBAR"
+          mkdir -p dist && cp /tmp/rel1/* dist/
+          (cd dist && sha256sum -c ./*.sha256)
+          mkdir /tmp/unz && unzip -q dist/*.zip -d /tmp/unz && cd /tmp/unz
+          ./install.sh preflight 2>&1 | grep -E "Release-Manifest verifiziert|PASS" 
+          # keine Secrets im Release-Artefakt
+          if grep -rEIl 'sk-ant-[A-Za-z0-9_-]{10,}|ghp_[A-Za-z0-9]{20,}|-----BEGIN [A-Z ]*PRIVATE KEY|AKIA[0-9A-Z]{16}' . ; then echo "FAIL: Secret im Release"; exit 1; fi
+          find . -name '.env' -o -name 'rclone.conf' -o -name '*.pem' -o -name '*.key' | grep . && { echo "FAIL: verbotene Datei im Release"; exit 1; } || echo "PASS: keine Secrets/verbotenen Dateien im Release"
+          echo tamper >> scripts/00-preflight.sh
+          if ./install.sh preflight >/dev/null 2>&1; then echo "FAIL: Manipulation nicht erkannt"; exit 1; fi
+          echo "PASS: manipuliertes Release wird abgelehnt"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: m03-release-candidate
+          path: dist/
+          retention-days: 30

@@ -1,0 +1,144 @@
+"""Statische Repo-Invarianten (ATLAS-Regeln) – laufen ohne Docker."""
+import os
+import re
+import subprocess
+from pathlib import Path
+
+import pytest
+import yaml
+
+ROOT = Path(__file__).resolve().parents[2]
+COMPOSE = yaml.safe_load((ROOT / "compose/docker-compose.yml").read_text())
+
+
+def _images():
+    for name, svc in COMPOSE["services"].items():
+        img = svc["image"]
+        if "${" in img:
+            img = re.search(r":-([^}]+)\}", img).group(1)
+        yield name, img
+
+
+def test_no_latest_tags_and_images_pinned():
+    for name, img in _images():
+        assert "latest" not in img, name
+        assert re.search(r":v?[0-9][\w.\-]*(@sha256:[0-9a-f]{64})?$", img), f"{name}: Image nicht gepinnt: {img}"
+
+
+def test_images_pinned_by_digest():
+    for name, img in _images():
+        assert re.search(r"@sha256:[0-9a-f]{64}$", img), f"{name}: kein Digest: {img}"
+    env = (ROOT / "compose/.env.example").read_text()
+    assert re.search(r"PAPERLESS_GPT_IMAGE=\S+@sha256:[0-9a-f]{64}", env)
+    lock = (ROOT / "VERSION_LOCK.md").read_text()
+    for _, img in _images():
+        assert img.split("@")[1] in lock, f"Digest fehlt in VERSION_LOCK.md: {img}"
+
+
+def test_ports_bound_to_loopback_only():
+    for name, svc in COMPOSE["services"].items():
+        for p in svc.get("ports", []):
+            assert str(p).startswith("127.0.0.1:"), f"{name}: Port nicht an Loopback: {p}"
+
+
+def test_paperless_gpt_is_opt_in_profile():
+    assert COMPOSE["services"]["paperless-gpt"]["profiles"] == ["ai"]
+    env = COMPOSE["services"]["paperless-gpt"]["environment"]
+    assert env["AUTO_GENERATE_DOCUMENT_TYPE"] == "false"
+    assert env["CREATE_NEW_TAGS"] == "false"
+    assert env["AUTO_GENERATE_CORRESPONDENTS"] == "false"  # D20: KI legt keine Korrespondenten an
+
+
+def test_secrets_via_files_not_inline():
+    text = (ROOT / "compose/docker-compose.yml").read_text()
+    assert not re.search(r"(PASSWORD|SECRET_KEY|TOKEN|API_KEY):\s*[^\s$/]", text.replace("_FILE", ""))
+
+
+def test_sandbox_paths_only():
+    text = (ROOT / "compose/docker-compose.yml").read_text()
+    assert "/srv/cortex" not in text.replace("/srv/cortex-library", "")  # keine produktiven Cortex-Pfade
+    for line in text.splitlines():
+        m = re.match(r"\s+- (/[^:]+):", line)
+        if m:
+            assert "atlas-sandbox" in m.group(1), line
+
+
+def test_scripts_executable_with_strict_mode():
+    for s in (ROOT / "scripts").glob("*.sh"):
+        assert os.access(s, os.X_OK), s
+        txt = s.read_text()
+        assert txt.startswith("#!/usr/bin/env bash") and "set -euo pipefail" in txt, s
+
+
+def test_destructive_scripts_require_confirmation_flag():
+    assert "--i-understand-this-deletes-the-sandbox" in (ROOT / "scripts/07-destroy-sandbox.sh").read_text()
+    assert "--i-understand-this-replaces-the-sandbox" in (ROOT / "scripts/08-restore-sandbox.sh").read_text()
+
+
+def test_destructive_scripts_touch_only_sandbox_paths():
+    allowed = {"$SAFE", "$OPT", "$VAR", "$SEC", "$SRV", "{}", "+"}
+    for s in ("07-destroy-sandbox.sh", "08-restore-sandbox.sh"):
+        for m in re.finditer(r"rm -rf ([^;&|\n]+)", (ROOT / "scripts" / s).read_text()):
+            for tok in m.group(1).split():
+                assert tok.strip('"') in allowed, (s, tok)
+
+
+def test_upload_requires_crypt_remote():
+    up = (ROOT / "scripts/12-backup-upload.sh").read_text()
+    assert '"crypt"' in up and "filename_encryption" in up and "directory_name_encryption" in up
+    assert "12-backup-upload.sh" in (ROOT / "scripts/06-backup-sandbox.sh").read_text()
+
+
+def test_no_private_files_tracked():
+    out = subprocess.run(["git", "ls-files"], cwd=ROOT, capture_output=True, text=True, check=True).stdout.splitlines()
+    for f in out:
+        assert not re.search(r"(^|/)\.env(\.|$)", f) or f.endswith(".env.example"), f
+        assert not f.endswith((".pem", ".key", ".dump", ".zip")), f
+        assert "rclone.conf" not in f
+
+
+def test_no_secret_like_literals():
+    pat = re.compile(r"(sk-ant-[A-Za-z0-9_-]{10,}|sk-[A-Za-z0-9]{20,}|ghp_[A-Za-z0-9]{20,}|AKIA[0-9A-Z]{16}|-----BEGIN [A-Z ]*PRIVATE KEY)")
+    files = subprocess.run(["git", "ls-files"], cwd=ROOT, capture_output=True, text=True, check=True).stdout.splitlines()
+    for f in files:
+        p = ROOT / f
+        if p.is_file():
+            assert not pat.search(p.read_text(errors="ignore")), f
+
+
+def test_env_examples_contain_only_placeholders():
+    t = (ROOT / "compose/paperless-gpt.env.example").read_text()
+    for line in t.splitlines():
+        if re.match(r"(PAPERLESS_API_TOKEN|ANTHROPIC_API_KEY|LLM_MODEL)=", line):
+            assert "REPLACE" in line
+
+
+SECRET_PATTERNS = re.compile(
+    r"(sk-ant-[A-Za-z0-9_-]{10,}|sk-[A-Za-z0-9]{32,}|ghp_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|AKIA[0-9A-Z]{16}|"
+    r"-----BEGIN [A-Z ]*PRIVATE KEY|xox[baprs]-[A-Za-z0-9-]{10,}|"
+    r"(?i:(password|secret|token|api_key)\s*[:=]\s*['\"]?[A-Za-z0-9+/_-]{32,}['\"]?\s*$))", re.M)
+ALLOWED = ("REPLACE", "dummy", "DUMMY", "mock-key-not-real", "x" * 8)
+
+
+def test_no_secrets_in_full_git_history():
+    """Scannt ALLE hinzugefügten Zeilen der gesamten Historie (nicht nur den Arbeitsbaum)."""
+    log = subprocess.run(["git", "log", "--all", "-p", "--no-color", "--unified=0", "--format=commit %H"], cwd=ROOT, capture_output=True, text=True, check=True).stdout
+    hits = []
+    for line in log.splitlines():
+        if line.startswith("+") and not line.startswith("+++") and SECRET_PATTERNS.search(line) and not any(a in line for a in ALLOWED):
+            hits.append(line[:80])
+    assert not hits, f"mögliche Secrets in der Historie: {hits[:3]}"
+
+
+def test_no_forbidden_files_ever_committed():
+    names = subprocess.run(["git", "log", "--all", "--name-only", "--format="], cwd=ROOT, capture_output=True, text=True, check=True).stdout.splitlines()
+    bad = [n for n in set(names) if n and re.search(r"(^|/)(rclone\.conf|recovery-key.*|.*\.pem|.*\.key|id_rsa.*|.*\.dump|\.env)$", n)]
+    assert not bad, bad
+
+
+def test_ci_workflow_has_least_privilege_and_no_secrets():
+    wf = (ROOT / ".github/workflows/static-checks.yml").read_text()
+    assert "permissions:\n  contents: read" in wf
+    assert "secrets." not in wf and "pull_request_target" not in wf, "keine Secrets / kein pull_request_target im CI"
+    for m in re.finditer(r"uses: ([\w./-]+)@(\S+)", wf):
+        assert re.match(r"v?\d", m.group(2)) or re.fullmatch(r"[0-9a-f]{40}", m.group(2)), f"Action nicht versioniert: {m.group(0)}"

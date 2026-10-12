@@ -1,0 +1,56 @@
+{
+  "_comment": "Cloudflare Access — VORLAGE (API-Objekte für /accounts/<ACCOUNT_ID>/access/apps). Platzhalter <...> ersetzen. Keine Secrets enthalten.",
+  "applications": [
+    {
+      "name": "ATLAS M03 Paperless",
+      "domain": "<paperless.example.com>",
+      "type": "self_hosted",
+      "session_duration": "12h",
+      "http_only_cookie_attribute": true,
+      "same_site_cookie_attribute": "lax",
+      "app_launcher_visible": false,
+      "policies": [
+        {
+          "name": "Owner mit Passkey/MFA",
+          "decision": "allow",
+          "include": [{"email": {"email": "<owner@example.com>"}}],
+          "require": [{"auth_method": {"auth_method": "swk"}}]
+        }
+      ]
+    },
+    {
+      "name": "ATLAS M03 Paperless-GPT",
+      "domain": "<paperless-gpt.example.com>",
+      "type": "self_hosted",
+      "session_duration": "4h",
+      "http_only_cookie_attribute": true,
+      "same_site_cookie_attribute": "lax",
+      "app_launcher_visible": false,
+      "policies": [
+        {
+          "name": "Owner mit Passkey/MFA",
+          "decision": "allow",
+          "include": [{"email": {"email": "<owner@example.com>"}}],
+          "require": [{"auth_method": {"auth_method": "swk"}}]
+        }
+      ]
+    },
+    {
+      "name": "ATLAS M03 library-read (Maschinenzugriff)",
+      "domain": "<library-read.example.com>",
+      "type": "self_hosted",
+      "session_duration": "1h",
+      "http_only_cookie_attribute": true,
+      "same_site_cookie_attribute": "strict",
+      "app_launcher_visible": false,
+      "policies": [
+        {
+          "name": "Nur dediziertes Service-Token",
+          "decision": "non_identity",
+          "include": [{"service_token": {"token_id": "<SERVICE-TOKEN-ID>"}}],
+          "require": []
+        }
+      ]
+    }
+  ]
+}
