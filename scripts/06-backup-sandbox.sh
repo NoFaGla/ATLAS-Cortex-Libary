@@ -9,7 +9,13 @@ STAMP=$(date -u +%Y%m%dT%H%M%SZ); BASE="$SRV/backup-staging/$STAMP"; CURRENT="$B
 umask 077
 mkdir -p "$CURRENT"/{opt,srv,var,etc,database,paperless-export,docker-volumes,manifest}
 cd "$OPT/compose"
-cleanup(){ docker compose --profile ai start >/dev/null 2>&1 || true; }; trap cleanup EXIT
+cleanup(){
+  docker compose --profile ai start >/dev/null 2>&1 || true
+  # Dienste erst als „wieder da“ melden, wenn Paperless antwortet (nachfolgende Schritte dürfen sich darauf verlassen)
+  for _ in $(seq 1 90); do curl -fsS http://127.0.0.1:18000/api/ >/dev/null 2>&1 && return 0; sleep 2; done
+  echo "WARN: Paperless antwortet nach dem Backup nicht rechtzeitig" >&2
+}
+trap cleanup EXIT
 rm -rf "$SRV/export"/*
 docker compose exec -T webserver document_exporter ../export -c
 cp -a "$SRV/export/." "$CURRENT/paperless-export/"

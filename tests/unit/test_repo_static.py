@@ -108,3 +108,34 @@ def test_env_examples_contain_only_placeholders():
     for line in t.splitlines():
         if re.match(r"(PAPERLESS_API_TOKEN|ANTHROPIC_API_KEY|LLM_MODEL)=", line):
             assert "REPLACE" in line
+
+
+SECRET_PATTERNS = re.compile(
+    r"(sk-ant-[A-Za-z0-9_-]{10,}|sk-[A-Za-z0-9]{32,}|ghp_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|AKIA[0-9A-Z]{16}|"
+    r"-----BEGIN [A-Z ]*PRIVATE KEY|xox[baprs]-[A-Za-z0-9-]{10,}|"
+    r"(?i:(password|secret|token|api_key)\s*[:=]\s*['\"]?[A-Za-z0-9+/_-]{32,}['\"]?\s*$))", re.M)
+ALLOWED = ("REPLACE", "dummy", "DUMMY", "mock-key-not-real", "x" * 8)
+
+
+def test_no_secrets_in_full_git_history():
+    """Scannt ALLE hinzugefügten Zeilen der gesamten Historie (nicht nur den Arbeitsbaum)."""
+    log = subprocess.run(["git", "log", "--all", "-p", "--no-color", "--unified=0", "--format=commit %H"], cwd=ROOT, capture_output=True, text=True, check=True).stdout
+    hits = []
+    for line in log.splitlines():
+        if line.startswith("+") and not line.startswith("+++") and SECRET_PATTERNS.search(line) and not any(a in line for a in ALLOWED):
+            hits.append(line[:80])
+    assert not hits, f"mögliche Secrets in der Historie: {hits[:3]}"
+
+
+def test_no_forbidden_files_ever_committed():
+    names = subprocess.run(["git", "log", "--all", "--name-only", "--format="], cwd=ROOT, capture_output=True, text=True, check=True).stdout.splitlines()
+    bad = [n for n in set(names) if n and re.search(r"(^|/)(rclone\.conf|recovery-key.*|.*\.pem|.*\.key|id_rsa.*|.*\.dump|\.env)$", n)]
+    assert not bad, bad
+
+
+def test_ci_workflow_has_least_privilege_and_no_secrets():
+    wf = (ROOT / ".github/workflows/static-checks.yml").read_text()
+    assert "permissions:\n  contents: read" in wf
+    assert "secrets." not in wf and "pull_request_target" not in wf, "keine Secrets / kein pull_request_target im CI"
+    for m in re.finditer(r"uses: ([\w./-]+)@(\S+)", wf):
+        assert re.match(r"v?\d", m.group(2)) or re.fullmatch(r"[0-9a-f]{40}", m.group(2)), f"Action nicht versioniert: {m.group(0)}"

@@ -26,7 +26,8 @@ class ReadClient:
             "Authorization": f"Token {self._token}", "Accept": API_ACCEPT,
             **({"Content-Type": "application/json"} if data else {})})
         try:
-            with urllib.request.urlopen(req, timeout=self.timeout) as r:  # noqa: S310 (Basis-URL ist Konfiguration)
+            # Schema http(s) wird im Konstruktor erzwungen (kein file:/ etc.)
+            with urllib.request.urlopen(req, timeout=self.timeout) as r:  # nosec B310
                 return r.read(), dict(r.headers)
         except Exception as exc:  # urllib.error.* , Timeouts
             raise PaperlessError(f"{method} {path}: {exc}") from exc
@@ -111,7 +112,8 @@ class WriteClient(ReadClient):
                                      headers={"Authorization": f"Token {self._token}", "Accept": API_ACCEPT,
                                               "Content-Type": ctype})
         try:
-            with urllib.request.urlopen(req, timeout=self.timeout):  # noqa: S310
+            # Schema http(s) wird im Konstruktor erzwungen (kein file:/ etc.)
+            with urllib.request.urlopen(req, timeout=self.timeout):  # nosec B310
                 return
         except Exception as exc:
             raise PaperlessError(f"update_version {doc_id}: {exc}") from exc

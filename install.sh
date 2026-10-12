@@ -131,6 +131,7 @@ cmd_upgrade(){
   local max_h=24
   while [ $# -gt 0 ]; do case "$1" in --max-backup-age-h) max_h=$2; shift ;; *) die "unbekannte Option $1" ;; esac; shift; done
   [ -d "$OPT" ] || die "keine Installation gefunden — erst install"
+  [ "$(cd "$HERE" && pwd -P)" != "$(cd "$OPT" && pwd -P)" ] || die "upgrade muss aus dem NEUEN Release-Verzeichnis gestartet werden, nicht aus der installierten Kopie"
   verify_release_manifest
   local latest; latest=$(readlink -f "$SRV/backup-staging/latest" 2>/dev/null || true)
   [ -n "$latest" ] && [ -f "$latest/SHA256SUMS" ] || die "kein Backup vorhanden: erst scripts/06-backup-sandbox.sh --upload ausführen (nichts wurde verändert)"
@@ -139,7 +140,9 @@ cmd_upgrade(){
   [ "$age_h" -le "$max_h" ] || die "letztes Backup ist ${age_h}h alt (> ${max_h}h) — frisches Backup erstellen (nichts wurde verändert)"
   say "PASS: Backup ${age_h}h alt, Prüfsummen ok"
   # Paketdateien aktualisieren (Konfigurationen/Secrets/Daten bleiben): nur Code, Skripte, Compose-Datei, Vorlagen
-  for d in src scripts deploy docs tests; do rm -rf "${OPT:?}/$d"; cp -a "$HERE/$d" "$OPT/$d"; done
+  for d in src scripts deploy docs tests; do   # erst kopieren, dann austauschen: bei Fehler bleibt die alte Version unversehrt
+    rm -rf "${OPT:?}/$d.new"; cp -a "$HERE/$d" "$OPT/$d.new"; rm -rf "${OPT:?}/$d"; mv "$OPT/$d.new" "$OPT/$d"
+  done
   cp "$HERE/compose/docker-compose.yml" "$OPT/compose/docker-compose.yml"; cp "$HERE/install.sh" "$OPT/install.sh"; cp "$HERE/pyproject.toml" "$OPT/pyproject.toml"
   chmod +x "$OPT/scripts/"*.sh "$OPT/install.sh"
   (cd "$OPT/compose" && docker compose up -d broker db webserver)

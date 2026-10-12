@@ -55,7 +55,8 @@ def _render(lines: list[str], *, noisy: bool = False, size=(1240, 1754)):
         d.text((90, y), line, fill=20, font=font)
         y += 46
     if noisy:  # schlechter Scan: Rotation, Unschärfe, Rauschen, Kontrastverlust (deterministisch)
-        rnd = random.Random(42)
+        # deterministische Testdaten, keine Kryptografie
+        rnd = random.Random(42)  # nosec B311
         img = img.rotate(1.8, expand=False, fillcolor=255).filter(ImageFilter.GaussianBlur(1.3))
         px = img.load()
         for _ in range(size[0] * size[1] // 25):

@@ -55,7 +55,7 @@ grep -E "VALIDATE=|FAIL" "$WORK/validate1.log"
 ENVF="$SEC/paperless-gpt.env"
 mkdir -p "$VAR/registry"
 step "upgrade ohne Backup muss verweigert werden"
-if bash "$OPT/install.sh" upgrade > "$WORK/up0.log" 2>&1; then fail "upgrade ohne Backup wurde ausgeführt"; fi
+if bash "$REPO/install.sh" upgrade > "$WORK/up0.log" 2>&1; then fail "upgrade ohne Backup wurde ausgeführt"; fi
 grep -q "kein Backup vorhanden" "$WORK/up0.log" && say "PASS: upgrade ohne Backup verweigert (nichts verändert)"
 step "seed synthetic data"
 python3 "$REPO/tests/integration/sandbox_state.py" seed --root "$REPO" --env-file "$ENVF"
@@ -77,15 +77,19 @@ step "service-accounts + echte library-read/-ingest-Dienste mit den installierte
 bash "$REPO/install.sh" service-accounts | tail -1
 for f in library-read-token library-ingest-token library-read-paperless-token library-ingest-paperless-token; do [ "$(stat -c %a "$SEC/$f")" = 600 ] || fail "$f nicht 0600"; done
 python3 "$REPO/tests/integration/services_check.py" --root "$REPO" --sec "$SEC" --state-before "$WORK/before.json"
+python3 "$REPO/tests/integration/sandbox_state.py" snapshot --root "$REPO" --env-file "$ENVF" --out "$WORK/pre-upgrade.json"   # inkl. Dienst-Ingest (nach dem Backup)
+step "upgrade aus der installierten Kopie wird verweigert (muss aus dem neuen Release laufen)"
+if bash "$OPT/install.sh" upgrade > "$WORK/up00.log" 2>&1; then fail "upgrade aus installierter Kopie wurde ausgeführt"; fi
+grep -q "NEUEN Release-Verzeichnis" "$WORK/up00.log" && say "PASS: upgrade aus der installierten Kopie verweigert"
 step "upgrade: zu altes Backup wird verweigert, frisches akzeptiert"
 touch -d '72 hours ago' "$LATEST/SHA256SUMS"
-if bash "$OPT/install.sh" upgrade > "$WORK/up1.log" 2>&1; then fail "upgrade mit 72h altem Backup wurde ausgeführt"; fi
+if bash "$REPO/install.sh" upgrade > "$WORK/up1.log" 2>&1; then fail "upgrade mit 72h altem Backup wurde ausgeführt"; fi
 grep -q "alt" "$WORK/up1.log" && say "PASS: upgrade mit veraltetem Backup verweigert"
 touch "$LATEST/SHA256SUMS"
-bash "$OPT/install.sh" upgrade > "$WORK/up2.log" 2>&1 || { tail -30 "$WORK/up2.log"; fail "upgrade"; }
+bash "$REPO/install.sh" upgrade > "$WORK/up2.log" 2>&1 || { tail -30 "$WORK/up2.log"; fail "upgrade"; }
 grep -E "UPGRADE=|VALIDATE=" "$WORK/up2.log"
 python3 "$REPO/tests/integration/sandbox_state.py" snapshot --root "$REPO" --env-file "$ENVF" --out "$WORK/after-upgrade.json"
-cmp -s "$WORK/before.json" "$WORK/after-upgrade.json" && say "PASS: Daten nach upgrade unverändert (Dokumente, Hashes, Registry, Assets)" || fail "Daten nach upgrade verändert"
+cmp -s "$WORK/pre-upgrade.json" "$WORK/after-upgrade.json" && say "PASS: Daten nach upgrade unverändert (Dokumente, Hashes, Registry, Assets)" || fail "Daten nach upgrade verändert"
 grep -q "paperless_secret_key" <(cd "$LATEST/current/etc" && ls -R) && say "PASS: Secrets im Backup enthalten"
 step "pre-destroy guard (erneut)"
 if docker ps -a --format '{{.Names}}' | grep -v '^m03-sandbox-' | grep -q .; then fail "fremde Container aufgetaucht"; fi

@@ -10,6 +10,7 @@ from __future__ import annotations
 import hmac
 import json
 import os
+import sys
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -89,15 +90,16 @@ def worker(ing: LibraryIngest, token: str, paperless: WriteClient, interval: flo
             ing.reconcile(token, paperless, queue_gpt, float(os.environ.get("ATLAS_PENDING_STALE_S", "900")))
             ing.finalize(token, paperless)
             ing.sync_lifecycle(token, paperless)
-        except Exception:  # Worker darf nie sterben; Fehler erscheinen im nächsten Lauf erneut
-            pass
+        except Exception as exc:  # Worker darf nie sterben; Fehler erscheinen im nächsten Lauf erneut (nur Typ loggen, keine Inhalte/Secrets)
+            print(f"worker: {type(exc).__name__}", file=sys.stderr, flush=True)
 
 
 def build_from_env(env=os.environ):
     token = secret("ATLAS_INGEST_TOKEN", env)
     reg = Registry(env["ATLAS_REGISTRY"])
     max_bytes = int(env.get("ATLAS_INGEST_MAX_BYTES", 50 * 1024 * 1024))
-    ing = LibraryIngest(reg, env["ATLAS_CONSUME_DIR"], env["ATLAS_STATE_DIR"], token, max_bytes)
+    owner = (int(env["ATLAS_CONSUME_UID"]), int(env["ATLAS_CONSUME_GID"])) if env.get("ATLAS_CONSUME_UID") else None  # nur nötig, wenn der Dienst nicht als Paperless-Benutzer läuft
+    ing = LibraryIngest(reg, env["ATLAS_CONSUME_DIR"], env["ATLAS_STATE_DIR"], token, max_bytes, consume_owner=owner)
     pl = WriteClient(env["ATLAS_PAPERLESS_URL"], secret("ATLAS_PAPERLESS_INGEST_TOKEN", env))
     host = check_bind(env.get("ATLAS_INGEST_HOST", "127.0.0.1"), env)
     srv = ThreadingHTTPServer((host, int(env.get("ATLAS_INGEST_PORT", "18091"))), make_handler(ing, token, pl, max_bytes))

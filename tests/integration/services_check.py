@@ -21,6 +21,7 @@ env = {**os.environ, "PYTHONPATH": str(Path(a.root) / "src"), "ATLAS_REGISTRY": 
        "ATLAS_PAPERLESS_URL": "http://127.0.0.1:18000", "ATLAS_STATE_DIR": str(var / "registry/state"), "ATLAS_CONSUME_DIR": str(srv / "consume"),
        "ATLAS_READ_TOKEN_FILE": str(sec / "library-read-token"), "ATLAS_PAPERLESS_READ_TOKEN_FILE": str(sec / "library-read-paperless-token"),
        "ATLAS_INGEST_TOKEN_FILE": str(sec / "library-ingest-token"), "ATLAS_PAPERLESS_INGEST_TOKEN_FILE": str(sec / "library-ingest-paperless-token"),
+       "ATLAS_CONSUME_UID": str(os.stat(srv / "consume").st_uid), "ATLAS_CONSUME_GID": str(os.stat(srv / "consume").st_gid),
        "ATLAS_READ_PORT": "18090", "ATLAS_INGEST_PORT": "18091", "ATLAS_RECONCILE_INTERVAL": "3"}
 fail = 0
 
@@ -91,9 +92,9 @@ try:
         if c == 200:
             break
         time.sleep(3)
-    check(c == 200 and m["paperless"]["title"] == "Dienst-Test", "Worker hat das Dokument zugeordnet (ATLAS-ID) und den Titelhinweis angewendet")
+    check(c == 200 and m.get("paperless", {}).get("title") == "Dienst-Test", "Worker hat das Dokument zugeordnet (ATLAS-ID) und den Titelhinweis angewendet")
     ptok2 = tok("library-ingest-paperless-token")
-    rq = urllib.request.Request(f"http://127.0.0.1:18000/api/documents/{m['paperless'] and ent['backend_id']}/", method="DELETE",
+    rq = urllib.request.Request(f"http://127.0.0.1:18000/api/documents/{ent['backend_id']}/", method="DELETE",
                                 headers={"Authorization": f"Token {ptok2}", "Accept": "application/json; version=10"})
     try:
         urllib.request.urlopen(rq, timeout=10); code = 200
